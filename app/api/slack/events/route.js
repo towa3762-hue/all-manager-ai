@@ -4,29 +4,33 @@ export async function POST(request) {
   try {
     const body = await request.json();
 
-    // SlackがURLの存在確認をするとき
+    // SlackのRequest URL確認
     if (body.type === "url_verification") {
-      return Response.json({
-        challenge: body.challenge,
+      return new Response(body.challenge, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/plain",
+        },
       });
     }
 
-    // Slackから通常のイベントが届いたとき
+    // 通常のSlackイベント
     if (body.type === "event_callback") {
-      const event = body.event;
-
-      // 後でここにAI処理を追加する
-      console.log("Slack event received:", event);
+      console.log("Slack event received:", body.event);
     }
 
-    return Response.json({ ok: true });
+    return new Response("OK", {
+      status: 200,
+      headers: {
+        "Content-Type": "text/plain",
+      },
+    });
   } catch (error) {
     console.error("Slack event error:", error);
 
-    return Response.json(
-      { ok: false },
-      { status: 500 }
-    );
+    return new Response("Error", {
+      status: 500,
+    });
   }
 }
 
