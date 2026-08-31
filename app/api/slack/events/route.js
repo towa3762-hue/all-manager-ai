@@ -47,10 +47,12 @@ async function askOpenAI(userText) {
       instructions: `
 あなたは「ALL Manager AI」です。
 
-現在は接続テスト段階です。
-ユーザーの自然文を理解して、短く日本語で返答してください。
+ユーザーのSlack上の自然文を理解して、
+短く自然な日本語で返答してください。
 
-以下を分かる範囲で整理してください。
+現在は会話テスト段階です。
+
+以下を分かる範囲で理解してください。
 ・何をしたいのか
 ・対象領域
 ・日時や期限
@@ -58,6 +60,9 @@ async function askOpenAI(userText) {
 ・優先度
 
 まだSlack ListsやGoogle Calendarは変更しないでください。
+
+Slackのチャンネル上で自然な会話になるよう、
+簡潔に返答してください。
 `,
       input: userText,
       max_output_tokens: 300,
@@ -67,6 +72,7 @@ async function askOpenAI(userText) {
   if (!response.ok) {
     const errorText = await response.text();
     console.error("OpenAI error:", response.status, errorText);
+
     return "OpenAIとの通信でエラーが発生しました。";
   }
 
@@ -83,7 +89,7 @@ async function askOpenAI(userText) {
   return outputText || "内容を解析できませんでした。";
 }
 
-async function postSlackMessage(channel, text, threadTs) {
+async function postSlackMessage(channel, text) {
   const response = await fetch("https://slack.com/api/chat.postMessage", {
     method: "POST",
     headers: {
@@ -93,7 +99,6 @@ async function postSlackMessage(channel, text, threadTs) {
     body: JSON.stringify({
       channel,
       text,
-      thread_ts: threadTs,
     }),
   });
 
@@ -105,12 +110,12 @@ async function postSlackMessage(channel, text, threadTs) {
 }
 
 async function processSlackEvent(event) {
-  // まずは @ALL Manager AI へのメンションだけAI処理
+  // 今は @ALL Manager AI へのメンションだけAI処理
   if (event.type !== "app_mention") {
     return;
   }
 
-  // Bot自身の投稿などは無視
+  // Bot自身の投稿は無視
   if (event.bot_id || event.subtype) {
     return;
   }
@@ -125,10 +130,10 @@ async function processSlackEvent(event) {
 
   const reply = await askOpenAI(userText);
 
+  // スレッドではなくチャンネルへ直接返信
   await postSlackMessage(
     event.channel,
-    reply,
-    event.ts
+    reply
   );
 }
 
@@ -139,6 +144,7 @@ export async function POST(request) {
     const timestamp = request.headers.get(
       "x-slack-request-timestamp"
     );
+
     const signature = request.headers.get(
       "x-slack-signature"
     );
@@ -151,6 +157,7 @@ export async function POST(request) {
 
     const body = JSON.parse(rawBody);
 
+    // SlackのRequest URL検証
     if (body.type === "url_verification") {
       return new Response(body.challenge, {
         status: 200,
@@ -165,7 +172,10 @@ export async function POST(request) {
         try {
           await processSlackEvent(body.event);
         } catch (error) {
-          console.error("Background processing error:", error);
+          console.error(
+            "Background processing error:",
+            error
+          );
         }
       });
     }
