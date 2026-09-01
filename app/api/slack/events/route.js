@@ -3,6 +3,12 @@ import { after } from "next/server";
 
 export const runtime = "nodejs";
 
+const ALL_TASKS_LIST_ID = "F0BT8TP1U5S";
+
+// ========================================
+// Slack署名確認
+// ========================================
+
 function verifySlackRequest(rawBody, timestamp, signature) {
   const secret = process.env.SLACK_SIGNING_SECRET;
 
@@ -35,6 +41,10 @@ function verifySlackRequest(rawBody, timestamp, signature) {
   return crypto.timingSafeEqual(a, b);
 }
 
+// ========================================
+// OpenAI
+// ========================================
+
 async function askOpenAI(userText) {
   const response = await fetch(
     "https://api.openai.com/v1/responses",
@@ -46,6 +56,7 @@ async function askOpenAI(userText) {
       },
       body: JSON.stringify({
         model: "gpt-5.6-luna",
+
         instructions: `
 あなたは「ALL Manager AI」です。
 
@@ -55,6 +66,7 @@ async function askOpenAI(userText) {
 現在は会話テスト段階です。
 
 以下を分かる範囲で理解してください。
+
 ・何をしたいのか
 ・対象領域
 ・日時や期限
@@ -66,7 +78,9 @@ async function askOpenAI(userText) {
 Slackのチャンネル上で自然な会話になるよう、
 簡潔に返答してください。
 `,
+
         input: userText,
+
         max_output_tokens: 300,
       }),
     }
@@ -97,6 +111,10 @@ Slackのチャンネル上で自然な会話になるよう、
   return outputText || "内容を解析できませんでした。";
 }
 
+// ========================================
+// Slackへメッセージ投稿
+// ========================================
+
 async function postSlackMessage(channel, text) {
   const response = await fetch(
     "https://slack.com/api/chat.postMessage",
@@ -106,6 +124,7 @@ async function postSlackMessage(channel, text) {
         Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
         "Content-Type": "application/json",
       },
+
       body: JSON.stringify({
         channel,
         text,
@@ -116,32 +135,24 @@ async function postSlackMessage(channel, text) {
   const data = await response.json();
 
   if (!data.ok) {
-    console.error("Slack post error:", data);
+    console.error(
+      "Slack post error:",
+      data
+    );
   }
 }
 
-async function getSlackIdentity() {
-  const response = await fetch(
-    "https://slack.com/api/auth.test",
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        "Content-Type": "application/json",
-      },
-    }
-  );
-
-  return await response.json();
-}
+// ========================================
+// Slackメッセージ処理
+// ========================================
 
 async function processSlackEvent(event) {
-  // 通常のチャンネルメッセージだけ処理
+  // 通常メッセージだけ処理
   if (event.type !== "message") {
     return;
   }
 
-  // Bot自身の返信や特殊メッセージは無視
+  // Bot自身の投稿・特殊メッセージは無視
   if (event.bot_id || event.subtype) {
     return;
   }
@@ -160,6 +171,10 @@ async function processSlackEvent(event) {
     reply
   );
 }
+
+// ========================================
+// Slack Events API
+// ========================================
 
 export async function POST(request) {
   try {
@@ -190,20 +205,26 @@ export async function POST(request) {
 
     const body = JSON.parse(rawBody);
 
-    // SlackのRequest URL検証
+    // Slack Request URL検証
     if (body.type === "url_verification") {
-      return new Response(body.challenge, {
-        status: 200,
-        headers: {
-          "Content-Type": "text/plain",
-        },
-      });
+      return new Response(
+        body.challenge,
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "text/plain",
+          },
+        }
+      );
     }
 
+    // Slackイベント処理
     if (body.type === "event_callback") {
       after(async () => {
         try {
-          await processSlackEvent(body.event);
+          await processSlackEvent(
+            body.event
+          );
         } catch (error) {
           console.error(
             "Background processing error:",
@@ -213,47 +234,112 @@ export async function POST(request) {
       });
     }
 
-    return new Response("OK", {
-      status: 200,
-    });
+    return new Response(
+      "OK",
+      {
+        status: 200,
+      }
+    );
   } catch (error) {
     console.error(
       "Slack event error:",
       error
     );
 
-    return new Response("Error", {
-      status: 500,
-    });
+    return new Response(
+      "Error",
+      {
+        status: 500,
+      }
+    );
   }
 }
 
+// ========================================
+// ALL TASKS の列情報確認
+// ========================================
+
 export async function GET() {
   try {
-    const slackIdentity =
-      await getSlackIdentity();
+    const response = await fetch(
+      "https://slack.com/api/slackLists.items.list",
+      {
+        method: "POST",
+
+        headers: {
+          Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+          "Content-Type": "application/json",
+        },
+
+        body: JSON.stringify({
+          list_id: ALL_TASKS_LIST_ID,
+          limit: 1,
+          include_list: true,
+        }),
+      }
+    );
+
+    const data = await response.json();
+
+    if (!data.ok) {
+      console.error(
+        "Slack List API error:",
+        data
+      );
+
+      return Response.json(
+        {
+          ok: false,
+          error: data.error,
+          needed: data.needed ?? null,
+          provided: data.provided ?? null,
+        },
+        {
+          status: 500,
+        }
+      );
+    }
+
+    const schema =
+      data.list?.list_metadata?.schema ?? [];
+
+    const columns = schema.map(
+      (column) => ({
+        id: column.id,
+        name: column.name,
+        key: column.key,
+        type: column.type,
+
+        is_primary_column:
+          column.is_primary_column ?? false,
+
+        options:
+          column.options ?? null,
+      })
+    );
 
     return Response.json({
-      status: "ALL Manager AI is running",
-      slack: {
-        ok: slackIdentity.ok,
-        user: slackIdentity.user ?? null,
-        user_id: slackIdentity.user_id ?? null,
-        bot_id: slackIdentity.bot_id ?? null,
-      },
+      ok: true,
+
+      list_id: ALL_TASKS_LIST_ID,
+
+      title:
+        data.list?.title ??
+        data.list?.name ??
+        "ALL TASKS",
+
+      columns,
     });
   } catch (error) {
     console.error(
-      "Slack identity error:",
+      "Slack List error:",
       error
     );
 
     return Response.json(
       {
-        status: "ALL Manager AI is running",
-        slack: {
-          ok: false,
-        },
+        ok: false,
+        error: "list_read_failed",
       },
       {
         status: 500,
