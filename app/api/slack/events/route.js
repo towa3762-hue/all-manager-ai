@@ -71,7 +71,12 @@ Slackのチャンネル上で自然な会話になるよう、
 
   if (!response.ok) {
     const errorText = await response.text();
-    console.error("OpenAI error:", response.status, errorText);
+
+    console.error(
+      "OpenAI error:",
+      response.status,
+      errorText
+    );
 
     return "OpenAIとの通信でエラーが発生しました。";
   }
@@ -90,17 +95,20 @@ Slackのチャンネル上で自然な会話になるよう、
 }
 
 async function postSlackMessage(channel, text) {
-  const response = await fetch("https://slack.com/api/chat.postMessage", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      channel,
-      text,
-    }),
-  });
+  const response = await fetch(
+    "https://slack.com/api/chat.postMessage",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        channel,
+        text,
+      }),
+    }
+  );
 
   const data = await response.json();
 
@@ -109,13 +117,28 @@ async function postSlackMessage(channel, text) {
   }
 }
 
+async function getSlackIdentity() {
+  const response = await fetch(
+    "https://slack.com/api/auth.test",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        "Content-Type": "application/json",
+      },
+    }
+  );
+
+  return await response.json();
+}
+
 async function processSlackEvent(event) {
-  // 今は @ALL Manager AI へのメンションだけAI処理
+  // @ALL Manager AI へのメンションだけ処理
   if (event.type !== "app_mention") {
     return;
   }
 
-  // Bot自身の投稿は無視
+  // Bot自身などの投稿は無視
   if (event.bot_id || event.subtype) {
     return;
   }
@@ -149,10 +172,19 @@ export async function POST(request) {
       "x-slack-signature"
     );
 
-    if (!verifySlackRequest(rawBody, timestamp, signature)) {
-      return new Response("Invalid Slack signature", {
-        status: 401,
-      });
+    if (
+      !verifySlackRequest(
+        rawBody,
+        timestamp,
+        signature
+      )
+    ) {
+      return new Response(
+        "Invalid Slack signature",
+        {
+          status: 401,
+        }
+      );
     }
 
     const body = JSON.parse(rawBody);
@@ -184,7 +216,10 @@ export async function POST(request) {
       status: 200,
     });
   } catch (error) {
-    console.error("Slack event error:", error);
+    console.error(
+      "Slack event error:",
+      error
+    );
 
     return new Response("Error", {
       status: 500,
@@ -193,7 +228,35 @@ export async function POST(request) {
 }
 
 export async function GET() {
-  return Response.json({
-    status: "ALL Manager AI is running",
-  });
+  try {
+    const slackIdentity =
+      await getSlackIdentity();
+
+    return Response.json({
+      status: "ALL Manager AI is running",
+      slack: {
+        ok: slackIdentity.ok,
+        user: slackIdentity.user ?? null,
+        user_id: slackIdentity.user_id ?? null,
+        bot_id: slackIdentity.bot_id ?? null,
+      },
+    });
+  } catch (error) {
+    console.error(
+      "Slack identity error:",
+      error
+    );
+
+    return Response.json(
+      {
+        status: "ALL Manager AI is running",
+        slack: {
+          ok: false,
+        },
+      },
+      {
+        status: 500,
+      }
+    );
+  }
 }
