@@ -36,15 +36,17 @@ function verifySlackRequest(rawBody, timestamp, signature) {
 }
 
 async function askOpenAI(userText) {
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "gpt-5.6-luna",
-      instructions: `
+  const response = await fetch(
+    "https://api.openai.com/v1/responses",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "gpt-5.6-luna",
+        instructions: `
 あなたは「ALL Manager AI」です。
 
 ユーザーのSlack上の自然文を理解して、
@@ -64,10 +66,11 @@ async function askOpenAI(userText) {
 Slackのチャンネル上で自然な会話になるよう、
 簡潔に返答してください。
 `,
-      input: userText,
-      max_output_tokens: 300,
-    }),
-  });
+        input: userText,
+        max_output_tokens: 300,
+      }),
+    }
+  );
 
   if (!response.ok) {
     const errorText = await response.text();
@@ -133,19 +136,17 @@ async function getSlackIdentity() {
 }
 
 async function processSlackEvent(event) {
-  // @ALL Manager AI へのメンションだけ処理
-  if (event.type !== "app_mention") {
+  // 通常のチャンネルメッセージだけ処理
+  if (event.type !== "message") {
     return;
   }
 
-  // Bot自身などの投稿は無視
+  // Bot自身の返信や特殊メッセージは無視
   if (event.bot_id || event.subtype) {
     return;
   }
 
-  const userText = (event.text ?? "")
-    .replace(/<@[A-Z0-9]+>/g, "")
-    .trim();
+  const userText = (event.text ?? "").trim();
 
   if (!userText) {
     return;
