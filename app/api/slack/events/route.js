@@ -23,7 +23,7 @@ const INPUT_CHANNELS = new Set([
 ]);
 
 // ========================================
-// 日本時間
+// 日付
 // ========================================
 
 function getTodayJST() {
@@ -63,9 +63,7 @@ function verifySlackRequest(
     Math.floor(Date.now() / 1000);
 
   if (
-    Math.abs(
-      now - Number(timestamp)
-    ) >
+    Math.abs(now - Number(timestamp)) >
     60 * 5
   ) {
     return false;
@@ -77,20 +75,12 @@ function verifySlackRequest(
   const expectedSignature =
     "v0=" +
     crypto
-      .createHmac(
-        "sha256",
-        secret
-      )
-      .update(
-        baseString,
-        "utf8"
-      )
+      .createHmac("sha256", secret)
+      .update(baseString, "utf8")
       .digest("hex");
 
   const a =
-    Buffer.from(
-      expectedSignature
-    );
+    Buffer.from(expectedSignature);
 
   const b =
     Buffer.from(signature);
@@ -99,19 +89,14 @@ function verifySlackRequest(
     return false;
   }
 
-  return crypto.timingSafeEqual(
-    a,
-    b
-  );
+  return crypto.timingSafeEqual(a, b);
 }
 
 // ========================================
 // チャンネル名取得
 // ========================================
 
-async function getChannelName(
-  channelId
-) {
+async function getChannelName(channelId) {
   const url =
     new URL(
       "https://slack.com/api/conversations.info"
@@ -123,15 +108,12 @@ async function getChannelName(
   );
 
   const response =
-    await fetch(
-      url.toString(),
-      {
-        headers: {
-          Authorization:
-            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        },
-      }
-    );
+    await fetch(url.toString(), {
+      headers: {
+        Authorization:
+          `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      },
+    });
 
   const data =
     await response.json();
@@ -145,14 +127,11 @@ async function getChannelName(
     return null;
   }
 
-  return (
-    data.channel?.name ??
-    null
-  );
+  return data.channel?.name ?? null;
 }
 
 // ========================================
-// 直近のSlack会話履歴
+// 直近の会話履歴
 // ========================================
 
 async function getRecentConversationHistory(
@@ -182,19 +161,16 @@ async function getRecentConversationHistory(
 
   url.searchParams.set(
     "limit",
-    "12"
+    "20"
   );
 
   const response =
-    await fetch(
-      url.toString(),
-      {
-        headers: {
-          Authorization:
-            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
-        },
-      }
-    );
+    await fetch(url.toString(), {
+      headers: {
+        Authorization:
+          `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+      },
+    });
 
   const data =
     await response.json();
@@ -208,42 +184,33 @@ async function getRecentConversationHistory(
     return [];
   }
 
-  return (
-    data.messages ?? []
-  )
-    .filter(
-      (message) => {
-        if (!message.text) {
-          return false;
-        }
-
-        if (message.bot_id) {
-          return true;
-        }
-
-        return (
-          message.user ===
-          currentUserId
-        );
+  return (data.messages ?? [])
+    .filter((message) => {
+      if (!message.text) {
+        return false;
       }
-    )
-    .reverse()
-    .map(
-      (message) => ({
-        role:
-          message.bot_id
-            ? "ALL Manager AI"
-            : "ユーザー",
 
-        text:
-          message.text.trim(),
-      })
-    );
+      if (message.bot_id) {
+        return true;
+      }
+
+      return (
+        message.user === currentUserId
+      );
+    })
+    .reverse()
+    .map((message) => ({
+      role:
+        message.bot_id
+          ? "ALL Manager AI"
+          : "ユーザー",
+
+      text:
+        message.text.trim(),
+    }));
 }
 
-function historyToText(
-  history
-) {
+function historyToText(history) {
   if (!history.length) {
     return "（履歴なし）";
   }
@@ -257,15 +224,11 @@ function historyToText(
 }
 
 // ========================================
-// OpenAI
+// OpenAI出力
 // ========================================
 
-function getOpenAIOutputText(
-  data
-) {
-  return (
-    data.output ?? []
-  )
+function getOpenAIOutputText(data) {
+  return (data.output ?? [])
     .filter(
       (item) =>
         item.type === "message"
@@ -276,8 +239,7 @@ function getOpenAIOutputText(
     )
     .filter(
       (content) =>
-        content.type ===
-        "output_text"
+        content.type === "output_text"
     )
     .map(
       (content) =>
@@ -286,6 +248,10 @@ function getOpenAIOutputText(
     .join("\n")
     .trim();
 }
+
+// ========================================
+// 自然文解析
+// ========================================
 
 async function analyzeSlackMessage(
   userText,
@@ -297,9 +263,7 @@ async function analyzeSlackMessage(
     getTodayJST();
 
   const recentHistory =
-    historyToText(
-      history
-    );
+    historyToText(history);
 
   const response =
     await fetch(
@@ -316,15 +280,14 @@ async function analyzeSlackMessage(
         },
 
         body: JSON.stringify({
-          model:
-            "gpt-5.6-luna",
+          model: "gpt-5.6-luna",
 
           store: false,
 
           instructions: `
 あなたは「ALL Manager AI」です。
 
-Slackの同じチャンネルで続いている会話として理解してください。
+Slack上でユーザーのタスクを管理します。
 
 現在の日付:
 ${today}
@@ -335,85 +298,150 @@ ${today}
 固定Area:
 ${fixedArea || "なし"}
 
-直近の会話履歴:
+直近の会話:
 ${recentHistory}
 
-重要:
-・今回のメッセージだけを単独で解釈せず、必要なら直近の履歴を使う
-・新しいタスクを勝手に作らない
-・曖昧なら clarification にする
-
-intent は次の5種類です。
+今回のユーザーメッセージと
+直近の会話を合わせて判断してください。
 
 --------------------------------
+intent
+--------------------------------
+
+次の7種類です。
+
 task_create
---------------------------------
+新しいタスクを作る。
 
-新しいタスクを登録する。
-
---------------------------------
 task_complete
---------------------------------
-
 既存タスクを完了する。
 
+task_complete_selection
+完了候補を提示した後に
+「1番」「P1のやつ」などで
+候補を選択した。
+
+task_postpone
+既存タスクの開始日を延期・変更する。
+
 例:
-「A社へ連絡、完了」
-「資料作成終わった」
+「A社へ連絡を明日に延期」
+「資料作成を9/20に移動」
+「A社のタスクを来週月曜日にして」
 
-task_nameには
-検索するタスク名を入れる。
+task_postpone_selection
+延期対象の候補を提示した後に
+「1番」
+「期限9/15のやつ」
+「P1のやつ」
+などで候補を選択した。
 
-selection_indexは0。
+conversation
+質問、相談、雑談。
+
+clarification
+安全に判断できないため
+ユーザーへの確認が必要。
+
+--------------------------------
+task_postpone
+--------------------------------
+
+task_name:
+対象タスクの名前。
+
+new_start_date:
+変更後のStartを
+YYYY-MM-DDで返す。
+
+「明日」
+「来週月曜」
+などは
+${today}
+を基準に正確な日付へ変換する。
+
+「来週」
+「そのうち」
+など日付を1日に特定できない場合は
+勝手に決めずclarification。
+
+new_due_date:
+ユーザーが期限そのものも
+変更すると明示した場合だけ設定。
+
+例:
+
+「A社を明日に延期」
+→ new_start_date = 明日
+→ new_due_date = ""
+
+「A社を明日に延期、期限も9/20にして」
+→ new_start_date = 明日
+→ new_due_date = 9/20
+
+重要:
+単なる延期では期限を勝手に変更しない。
+
+--------------------------------
+task_postpone_selection
+--------------------------------
+
+直前の会話で延期対象の候補が
+番号付きで表示されている場合に使う。
+
+例:
+
+ユーザー:
+A社へ連絡を明日に延期
+
+AI:
+候補が3件あります...
+
+ユーザー:
+1番
+
+この場合:
+
+intent =
+task_postpone_selection
+
+selection_index =
+1
+
+task_name =
+直前に延期しようとしていたタスク名
+
+new_start_date =
+直前の依頼で指定された変更後の日付
+
+new_due_date =
+直前の依頼で期限変更も明示されていた場合のみ設定
+
+「期限9/15のやつ」
+という候補選択は、
+既存タスクを特定するための表現であり、
+新しい期限指定ではありません。
 
 --------------------------------
 task_complete_selection
 --------------------------------
 
-直前にALL Manager AIが
-複数候補を番号付きで提示しており、
-今回のメッセージが
-その候補を選んでいる場合。
-
-例:
+直前に完了候補が表示されており、
 
 「1番」
-「一番上」
-「2つ目」
-「期限9/15のやつ」
+「2番」
 「P1のやつ」
 
-会話履歴から該当候補を判断し、
-selection_index に候補番号を入れる。
+などで候補を選んだ場合。
 
-番号は1から始まる。
-
-task_nameには、
-直前に完了しようとしていた
-元のタスク名を入れる。
-
-どれか特定できなければ
-clarification。
-
---------------------------------
-conversation
---------------------------------
-
-質問、相談、雑談、確認など。
-
-過去の話の続きなら、
-履歴を踏まえてreplyを返す。
-
---------------------------------
-clarification
---------------------------------
-
-何を意味しているか
-安全に特定できない場合。
+selection_indexには
+候補番号を入れる。
 
 --------------------------------
 Area
 --------------------------------
+
+候補:
 
 本業
 副業
@@ -421,14 +449,12 @@ Training
 Study
 Life
 
-固定Areaがある場合は
-必ず固定Area。
+固定Areaがあるチャンネルでは
+必ず固定Areaを使用。
 
-#90-inboxの場合だけ
-内容から判断する。
+#90-inboxだけ内容から判断。
 
-分からなければ
-clarification。
+判断できなければclarification。
 
 --------------------------------
 Project
@@ -437,7 +463,8 @@ Project
 分かる場合だけ設定。
 
 ALL Manager AIや
-Slack管理システムの開発は
+Slack管理システム、
+この管理ツール開発なら
 
 副業管理ツール
 
@@ -450,26 +477,31 @@ Slack管理システムの開発は
 --------------------------------
 
 Status:
-基本Ready。
-今日やるならToday。
+
+通常 = Ready
+今日実行 = Today
 
 Priority:
+
 P1 = 最優先
 P2 = 高め
 P3 = 通常
 P4 = 低め
 
-指定なしならP3。
+指定なし = P3
 
 Start:
-YYYY-MM-DD。
-指定なしなら${today}。
+
+YYYY-MM-DD
+指定なし = ${today}
 
 Due:
+
 期限がある場合だけ
-YYYY-MM-DD。
+YYYY-MM-DD
 
 Estimate:
+
 15
 30
 45
@@ -477,57 +509,59 @@ Estimate:
 90
 120
 
+から選択。
+
 指定なしなら推定。
 不明なら30。
 
-reply:
-conversation / clarification
-のときの短い返答。
+--------------------------------
+重要
+--------------------------------
+
+・勝手に新規タスクを作らない
+・勝手に期限を変更しない
+・文脈が必要なら会話履歴を見る
+・特定できない場合はclarification
+・selectionでは直前の操作内容も引き継ぐ
 `,
 
-          input:
-            userText,
+          input: userText,
 
-          max_output_tokens:
-            450,
+          max_output_tokens: 500,
 
           text: {
             format: {
-              type:
-                "json_schema",
+              type: "json_schema",
 
               name:
                 "all_manager_intent",
 
-              strict:
-                true,
+              strict: true,
 
               schema: {
-                type:
-                  "object",
+                type: "object",
 
                 properties: {
                   intent: {
-                    type:
-                      "string",
+                    type: "string",
 
                     enum: [
                       "task_create",
                       "task_complete",
                       "task_complete_selection",
+                      "task_postpone",
+                      "task_postpone_selection",
                       "conversation",
                       "clarification",
                     ],
                   },
 
                   task_name: {
-                    type:
-                      "string",
+                    type: "string",
                   },
 
                   selection_index: {
-                    type:
-                      "integer",
+                    type: "integer",
 
                     enum: [
                       0,
@@ -543,8 +577,7 @@ conversation / clarification
                   },
 
                   area: {
-                    type:
-                      "string",
+                    type: "string",
 
                     enum: [
                       "",
@@ -557,13 +590,11 @@ conversation / clarification
                   },
 
                   project: {
-                    type:
-                      "string",
+                    type: "string",
                   },
 
                   status: {
-                    type:
-                      "string",
+                    type: "string",
 
                     enum: [
                       "",
@@ -573,8 +604,7 @@ conversation / clarification
                   },
 
                   priority: {
-                    type:
-                      "string",
+                    type: "string",
 
                     enum: [
                       "",
@@ -586,18 +616,15 @@ conversation / clarification
                   },
 
                   start_date: {
-                    type:
-                      "string",
+                    type: "string",
                   },
 
                   due_date: {
-                    type:
-                      "string",
+                    type: "string",
                   },
 
                   estimate_minutes: {
-                    type:
-                      "integer",
+                    type: "integer",
 
                     enum: [
                       0,
@@ -610,9 +637,16 @@ conversation / clarification
                     ],
                   },
 
+                  new_start_date: {
+                    type: "string",
+                  },
+
+                  new_due_date: {
+                    type: "string",
+                  },
+
                   reply: {
-                    type:
-                      "string",
+                    type: "string",
                   },
                 },
 
@@ -627,6 +661,8 @@ conversation / clarification
                   "start_date",
                   "due_date",
                   "estimate_minutes",
+                  "new_start_date",
+                  "new_due_date",
                   "reply",
                 ],
 
@@ -658,9 +694,7 @@ conversation / clarification
     await response.json();
 
   const outputText =
-    getOpenAIOutputText(
-      data
-    );
+    getOpenAIOutputText(data);
 
   if (!outputText) {
     throw new Error(
@@ -668,9 +702,7 @@ conversation / clarification
     );
   }
 
-  return JSON.parse(
-    outputText
-  );
+  return JSON.parse(outputText);
 }
 
 // ========================================
@@ -687,8 +719,7 @@ async function getAllTasksData() {
       list_id:
         ALL_TASKS_LIST_ID,
 
-      limit:
-        100,
+      limit: 100,
 
       include_list:
         list === null,
@@ -734,12 +765,8 @@ async function getAllTasksData() {
       );
     }
 
-    if (
-      !list &&
-      data.list
-    ) {
-      list =
-        data.list;
+    if (!list && data.list) {
+      list = data.list;
     }
 
     items =
@@ -828,12 +855,11 @@ function findSelectColumn(
       }
 
       const labels =
-        getChoiceLabels(
-          column
-        ).map(
-          (label) =>
-            label.toLowerCase()
-        );
+        getChoiceLabels(column)
+          .map(
+            (label) =>
+              label.toLowerCase()
+          );
 
       return requiredLabels.every(
         (required) =>
@@ -872,13 +898,11 @@ function makeRichTextField(
   text
 ) {
   return {
-    column_id:
-      columnId,
+    column_id: columnId,
 
     rich_text: [
       {
-        type:
-          "rich_text",
+        type: "rich_text",
 
         elements: [
           {
@@ -887,11 +911,8 @@ function makeRichTextField(
 
             elements: [
               {
-                type:
-                  "text",
-
-                text:
-                  String(text),
+                type: "text",
+                text: String(text),
               },
             ],
           },
@@ -1001,12 +1022,8 @@ function getItemSelectLabel(
 // タスク検索
 // ========================================
 
-function normalizeTaskName(
-  text
-) {
-  return String(
-    text ?? ""
-  )
+function normalizeTaskName(text) {
+  return String(text ?? "")
     .normalize("NFKC")
     .toLowerCase()
     .replace(
@@ -1019,28 +1036,18 @@ function normalizeTaskName(
     );
 }
 
-function sortTaskRows(
-  rows
-) {
-  return [
-    ...rows,
-  ].sort(
+function sortTaskRows(rows) {
+  return [...rows].sort(
     (a, b) => {
       const dateDiff =
         Number(
-          b.item
-            .date_created ??
-            0
+          b.item.date_created ?? 0
         ) -
         Number(
-          a.item
-            .date_created ??
-            0
+          a.item.date_created ?? 0
         );
 
-      if (
-        dateDiff !== 0
-      ) {
+      if (dateDiff !== 0) {
         return dateDiff;
       }
 
@@ -1091,9 +1098,7 @@ function findMatchingTaskRows(
         ) === requested
     );
 
-  if (
-    exact.length
-  ) {
+  if (exact.length) {
     return sortTaskRows(
       exact
     );
@@ -1140,17 +1145,11 @@ function formatCreatedAtJST(
       timeZone:
         "Asia/Tokyo",
 
-      month:
-        "numeric",
+      month: "numeric",
+      day: "numeric",
 
-      day:
-        "numeric",
-
-      hour:
-        "2-digit",
-
-      minute:
-        "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
     }
   ).format(
     new Date(
@@ -1238,8 +1237,7 @@ function buildCandidateLine(
 
   const created =
     formatCreatedAtJST(
-      row.item
-        .date_created
+      row.item.date_created
     );
 
   const details = [];
@@ -1293,9 +1291,7 @@ async function createTaskInSlackList(
   slackUserId,
   originalText
 ) {
-  const {
-    schema,
-  } =
+  const { schema } =
     await getAllTasksData();
 
   const nameColumn =
@@ -1305,10 +1301,7 @@ async function createTaskInSlackList(
     ) ||
     findColumnByNames(
       schema,
-      [
-        "名前",
-        "Name",
-      ]
+      ["名前", "Name"]
     );
 
   const assigneeColumn =
@@ -1381,10 +1374,7 @@ async function createTaskInSlackList(
   const notesColumn =
     findColumnByNames(
       schema,
-      [
-        "Notes",
-        "メモ",
-      ]
+      ["Notes", "メモ"]
     );
 
   if (!nameColumn) {
@@ -1532,9 +1522,7 @@ async function createTaskInSlackList(
     }
   }
 
-  if (
-    lastUpdateColumn
-  ) {
+  if (lastUpdateColumn) {
     fields.push({
       column_id:
         lastUpdateColumn.id,
@@ -1571,14 +1559,13 @@ async function createTaskInSlackList(
             "application/json",
         },
 
-        body:
-          JSON.stringify({
-            list_id:
-              ALL_TASKS_LIST_ID,
+        body: JSON.stringify({
+          list_id:
+            ALL_TASKS_LIST_ID,
 
-            initial_fields:
-              fields,
-          }),
+          initial_fields:
+            fields,
+        }),
       }
     );
 
@@ -1600,12 +1587,11 @@ async function createTaskInSlackList(
 }
 
 // ========================================
-// タスク完了
+// 共通: タスク候補取得
 // ========================================
 
-async function completeTask(
-  requestedTaskName,
-  selectionIndex = 0
+async function getTaskMatches(
+  requestedTaskName
 ) {
   const {
     schema,
@@ -1620,11 +1606,90 @@ async function completeTask(
     ) ||
     findColumnByNames(
       schema,
-      [
-        "名前",
-        "Name",
-      ]
+      ["名前", "Name"]
     );
+
+  if (!nameColumn) {
+    throw new Error(
+      "名前列が見つかりません"
+    );
+  }
+
+  const matches =
+    findMatchingTaskRows(
+      items,
+      nameColumn.id,
+      requestedTaskName
+    );
+
+  return {
+    schema,
+    matches,
+  };
+}
+
+// ========================================
+// 完了処理
+// ========================================
+
+async function completeTask(
+  requestedTaskName,
+  selectionIndex = 0
+) {
+  const {
+    schema,
+    matches,
+  } =
+    await getTaskMatches(
+      requestedTaskName
+    );
+
+  if (!matches.length) {
+    return {
+      status: "not_found",
+    };
+  }
+
+  if (
+    matches.length > 1 &&
+    selectionIndex === 0
+  ) {
+    return {
+      status: "multiple",
+
+      candidates:
+        matches
+          .slice(0, 8)
+          .map(
+            (row, index) =>
+              buildCandidateLine(
+                row,
+                schema,
+                index + 1
+              )
+          ),
+    };
+  }
+
+  const selectedRow =
+    selectionIndex > 0
+      ? matches[
+          selectionIndex - 1
+        ]
+      : matches[0];
+
+  if (!selectedRow) {
+    return {
+      status:
+        "invalid_selection",
+
+      count:
+        Math.min(
+          matches.length,
+          8
+        ),
+    };
+  }
 
   const completedColumn =
     findColumnByKey(
@@ -1652,118 +1717,31 @@ async function completeTask(
       ]
     );
 
-  if (!nameColumn) {
-    throw new Error(
-      "名前列が見つかりません"
-    );
-  }
-
-  const matches =
-    findMatchingTaskRows(
-      items,
-      nameColumn.id,
-      requestedTaskName
-    );
-
-  if (!matches.length) {
-    return {
-      status:
-        "not_found",
-    };
-  }
-
-  if (
-    matches.length > 1 &&
-    selectionIndex === 0
-  ) {
-    return {
-      status:
-        "multiple",
-
-      candidates:
-        matches
-          .slice(0, 8)
-          .map(
-            (row, index) =>
-              buildCandidateLine(
-                row,
-                schema,
-                index + 1
-              )
-          ),
-    };
-  }
-
-  let selectedRow;
-
-  if (
-    selectionIndex > 0
-  ) {
-    selectedRow =
-      matches[
-        selectionIndex - 1
-      ];
-
-    if (!selectedRow) {
-      return {
-        status:
-          "invalid_selection",
-
-        count:
-          Math.min(
-            matches.length,
-            8
-          ),
-      };
-    }
-  } else {
-    selectedRow =
-      matches[0];
-  }
-
-  const rowId =
-    selectedRow.item.id;
-
   const cells = [];
 
-  // ====================================
-  // 完了済みチェック
-  // ====================================
-
-  if (
-    completedColumn
-  ) {
+  if (completedColumn) {
     cells.push({
       row_id:
-        rowId,
+        selectedRow.item.id,
 
       column_id:
         completedColumn.id,
 
-      checkbox:
-        true,
+      checkbox: true,
     });
   }
 
-  // ====================================
-  // Status = Done
-  // ====================================
-
-  if (
-    statusColumn
-  ) {
+  if (statusColumn) {
     const doneOption =
       findSelectOption(
         statusColumn,
         "Done"
       );
 
-    if (
-      doneOption
-    ) {
+    if (doneOption) {
       cells.push({
         row_id:
-          rowId,
+          selectedRow.item.id,
 
         column_id:
           statusColumn.id,
@@ -1775,16 +1753,10 @@ async function completeTask(
     }
   }
 
-  // ====================================
-  // 最終更新 = 今日
-  // ====================================
-
-  if (
-    lastUpdateColumn
-  ) {
+  if (lastUpdateColumn) {
     cells.push({
       row_id:
-        rowId,
+        selectedRow.item.id,
 
       column_id:
         lastUpdateColumn.id,
@@ -1793,12 +1765,6 @@ async function completeTask(
         getTodayJST(),
       ],
     });
-  }
-
-  if (!cells.length) {
-    throw new Error(
-      "更新できる列が見つかりません"
-    );
   }
 
   const response =
@@ -1815,13 +1781,12 @@ async function completeTask(
             "application/json",
         },
 
-        body:
-          JSON.stringify({
-            list_id:
-              ALL_TASKS_LIST_ID,
+        body: JSON.stringify({
+          list_id:
+            ALL_TASKS_LIST_ID,
 
-            cells,
-          }),
+          cells,
+        }),
       }
     );
 
@@ -1830,21 +1795,213 @@ async function completeTask(
 
   if (!data.ok) {
     console.error(
-      "List update error:",
+      "Complete task error:",
       data
     );
 
     throw new Error(
-      `List update error: ${data.error}`
+      `Complete error: ${data.error}`
     );
   }
 
   return {
-    status:
-      "completed",
+    status: "completed",
+    taskName: selectedRow.name,
+  };
+}
+
+// ========================================
+// 延期処理
+// ========================================
+
+async function postponeTask(
+  requestedTaskName,
+  selectionIndex,
+  newStartDate,
+  newDueDate
+) {
+  if (!newStartDate) {
+    return {
+      status: "date_required",
+    };
+  }
+
+  const {
+    schema,
+    matches,
+  } =
+    await getTaskMatches(
+      requestedTaskName
+    );
+
+  if (!matches.length) {
+    return {
+      status: "not_found",
+    };
+  }
+
+  if (
+    matches.length > 1 &&
+    selectionIndex === 0
+  ) {
+    return {
+      status: "multiple",
+
+      candidates:
+        matches
+          .slice(0, 8)
+          .map(
+            (row, index) =>
+              buildCandidateLine(
+                row,
+                schema,
+                index + 1
+              )
+          ),
+    };
+  }
+
+  const selectedRow =
+    selectionIndex > 0
+      ? matches[
+          selectionIndex - 1
+        ]
+      : matches[0];
+
+  if (!selectedRow) {
+    return {
+      status:
+        "invalid_selection",
+
+      count:
+        Math.min(
+          matches.length,
+          8
+        ),
+    };
+  }
+
+  const startColumn =
+    findColumnByNames(
+      schema,
+      ["Start"]
+    );
+
+  const dueColumn =
+    findColumnByKey(
+      schema,
+      "todo_due_date"
+    );
+
+  const lastUpdateColumn =
+    findColumnByNames(
+      schema,
+      [
+        "Last Update",
+        "最終更新",
+      ]
+    );
+
+  if (!startColumn) {
+    throw new Error(
+      "Start列が見つかりません"
+    );
+  }
+
+  const cells = [
+    {
+      row_id:
+        selectedRow.item.id,
+
+      column_id:
+        startColumn.id,
+
+      date: [
+        newStartDate,
+      ],
+    },
+  ];
+
+  // 期限は明示された時だけ変更
+  if (
+    newDueDate &&
+    dueColumn
+  ) {
+    cells.push({
+      row_id:
+        selectedRow.item.id,
+
+      column_id:
+        dueColumn.id,
+
+      date: [
+        newDueDate,
+      ],
+    });
+  }
+
+  if (lastUpdateColumn) {
+    cells.push({
+      row_id:
+        selectedRow.item.id,
+
+      column_id:
+        lastUpdateColumn.id,
+
+      date: [
+        getTodayJST(),
+      ],
+    });
+  }
+
+  const response =
+    await fetch(
+      "https://slack.com/api/slackLists.items.update",
+      {
+        method: "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          list_id:
+            ALL_TASKS_LIST_ID,
+
+          cells,
+        }),
+      }
+    );
+
+  const data =
+    await response.json();
+
+  if (!data.ok) {
+    console.error(
+      "Postpone task error:",
+      data
+    );
+
+    throw new Error(
+      `Postpone error: ${data.error}`
+    );
+  }
+
+  return {
+    status: "postponed",
 
     taskName:
       selectedRow.name,
+
+    startDate:
+      newStartDate,
+
+    dueDate:
+      newDueDate || "",
   };
 }
 
@@ -1870,11 +2027,10 @@ async function postSlackMessage(
             "application/json",
         },
 
-        body:
-          JSON.stringify({
-            channel,
-            text,
-          }),
+        body: JSON.stringify({
+          channel,
+          text,
+        }),
       }
     );
 
@@ -1890,7 +2046,7 @@ async function postSlackMessage(
 }
 
 // ========================================
-// 完了結果返信
+// 完了結果
 // ========================================
 
 async function handleCompletionResult(
@@ -1929,7 +2085,7 @@ async function handleCompletionResult(
       channel,
       `候補が複数あります。どれを完了しますか？\n${result.candidates.join(
         "\n"
-      )}\n\n「1番」「期限9/15のやつ」のように返してください。`
+      )}\n\n「1番」のように返してください。`
     );
 
     return;
@@ -1942,6 +2098,80 @@ async function handleCompletionResult(
 }
 
 // ========================================
+// 延期結果
+// ========================================
+
+async function handlePostponeResult(
+  channel,
+  result
+) {
+  if (
+    result.status ===
+    "date_required"
+  ) {
+    await postSlackMessage(
+      channel,
+      "いつに延期しますか？"
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "not_found"
+  ) {
+    await postSlackMessage(
+      channel,
+      "⚠️ 一致するタスクが見つかりませんでした。"
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "invalid_selection"
+  ) {
+    await postSlackMessage(
+      channel,
+      `その番号はありません。1〜${result.count}番から選んでください。`
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "multiple"
+  ) {
+    await postSlackMessage(
+      channel,
+      `候補が複数あります。どれを延期しますか？\n${result.candidates.join(
+        "\n"
+      )}\n\n「1番」のように返してください。`
+    );
+
+    return;
+  }
+
+  let message =
+    `✅ 延期しました\n` +
+    `・${result.taskName}\n` +
+    `・Start: ${result.startDate}`;
+
+  if (result.dueDate) {
+    message +=
+      `\n・期限: ${result.dueDate}`;
+  }
+
+  await postSlackMessage(
+    channel,
+    message
+  );
+}
+
+// ========================================
 // Slackメッセージ処理
 // ========================================
 
@@ -1949,8 +2179,7 @@ async function processSlackEvent(
   event
 ) {
   if (
-    event.type !==
-    "message"
+    event.type !== "message"
   ) {
     return;
   }
@@ -2005,21 +2234,26 @@ async function processSlackEvent(
         history
       );
 
+    // ------------------------------------
     // 普通の会話
+    // ------------------------------------
+
     if (
       result.intent ===
       "conversation"
     ) {
       await postSlackMessage(
         event.channel,
-        result.reply ||
-          "はい。"
+        result.reply || "はい。"
       );
 
       return;
     }
 
+    // ------------------------------------
     // 確認
+    // ------------------------------------
+
     if (
       result.intent ===
       "clarification"
@@ -2033,7 +2267,10 @@ async function processSlackEvent(
       return;
     }
 
+    // ------------------------------------
     // 完了
+    // ------------------------------------
+
     if (
       result.intent ===
       "task_complete"
@@ -2052,7 +2289,10 @@ async function processSlackEvent(
       return;
     }
 
-    // 候補選択して完了
+    // ------------------------------------
+    // 完了候補選択
+    // ------------------------------------
+
     if (
       result.intent ===
       "task_complete_selection"
@@ -2071,9 +2311,57 @@ async function processSlackEvent(
       return;
     }
 
-    // ====================================
+    // ------------------------------------
+    // 延期
+    // ------------------------------------
+
+    if (
+      result.intent ===
+      "task_postpone"
+    ) {
+      const postponeResult =
+        await postponeTask(
+          result.task_name,
+          0,
+          result.new_start_date,
+          result.new_due_date
+        );
+
+      await handlePostponeResult(
+        event.channel,
+        postponeResult
+      );
+
+      return;
+    }
+
+    // ------------------------------------
+    // 延期候補選択
+    // ------------------------------------
+
+    if (
+      result.intent ===
+      "task_postpone_selection"
+    ) {
+      const postponeResult =
+        await postponeTask(
+          result.task_name,
+          result.selection_index,
+          result.new_start_date,
+          result.new_due_date
+        );
+
+      await handlePostponeResult(
+        event.channel,
+        postponeResult
+      );
+
+      return;
+    }
+
+    // ------------------------------------
     // 新規タスク
-    // ====================================
+    // ------------------------------------
 
     const finalArea =
       fixedArea ||
@@ -2111,8 +2399,7 @@ async function processSlackEvent(
         getTodayJST(),
 
       due_date:
-        result.due_date ||
-        "",
+        result.due_date || "",
 
       estimate_minutes:
         result.estimate_minutes ||
@@ -2130,9 +2417,7 @@ async function processSlackEvent(
       `・${task.task_name}\n` +
       `・${task.area}`;
 
-    if (
-      task.project
-    ) {
+    if (task.project) {
       confirmation +=
         ` / ${task.project}`;
     }
@@ -2143,9 +2428,7 @@ async function processSlackEvent(
     confirmation +=
       `\n・Start: ${task.start_date}`;
 
-    if (
-      task.due_date
-    ) {
+    if (task.due_date) {
       confirmation +=
         ` / 期限: ${task.due_date}`;
     }
@@ -2204,9 +2487,7 @@ export async function POST(
     }
 
     const body =
-      JSON.parse(
-        rawBody
-      );
+      JSON.parse(rawBody);
 
     if (
       body.type ===
@@ -2229,20 +2510,18 @@ export async function POST(
       body.type ===
       "event_callback"
     ) {
-      after(
-        async () => {
-          try {
-            await processSlackEvent(
-              body.event
-            );
-          } catch (error) {
-            console.error(
-              "Background processing error:",
-              error
-            );
-          }
+      after(async () => {
+        try {
+          await processSlackEvent(
+            body.event
+          );
+        } catch (error) {
+          console.error(
+            "Background processing error:",
+            error
+          );
         }
-      );
+      });
     }
 
     return new Response(
@@ -2278,7 +2557,7 @@ export async function GET() {
       "ALL Manager AI is running",
 
     mode:
-      "conversation-memory-and-task-selection",
+      "create-complete-postpone",
 
     date:
       getTodayJST(),
