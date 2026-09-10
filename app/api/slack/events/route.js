@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 const ALL_TASKS_LIST_ID = "F0BT8TP1U5S";
 
 // ========================================
-// 入力に使うSlackチャンネル
+// 入力チャンネル
 // ========================================
 
 const CHANNEL_AREA_MAP = {
@@ -27,7 +27,7 @@ const INPUT_CHANNELS = new Set([
 ]);
 
 // ========================================
-// 日本時間の日付
+// 日本時間
 // ========================================
 
 function getTodayJST() {
@@ -117,7 +117,7 @@ function verifySlackRequest(
 }
 
 // ========================================
-// Slackチャンネル名取得
+// チャンネル名取得
 // ========================================
 
 async function getChannelName(
@@ -165,7 +165,7 @@ async function getChannelName(
 }
 
 // ========================================
-// OpenAIレスポンス取得
+// OpenAI出力取得
 // ========================================
 
 function getOpenAIOutputText(
@@ -228,8 +228,6 @@ async function analyzeSlackMessage(
           instructions: `
 あなたは「ALL Manager AI」です。
 
-Slack上の自然文を解析してください。
-
 現在の日付は日本時間で
 ${today}
 です。
@@ -238,38 +236,76 @@ ${today}
 #${channelName}
 です。
 
-このチャンネルの固定Areaは
+固定Areaは
 ${fixedArea || "なし"}
 です。
 
---------------------------------
-■ intent
---------------------------------
+ユーザーの自然文を次の4種類に分類してください。
 
-次の3種類です。
-
+--------------------------------
 task_create
-= 新しいタスクを登録する内容
+--------------------------------
 
+新しいタスクを登録する内容。
+
+例:
+「A社へ連絡する」
+「9/12以降にA社へ連絡。期限9/15、15分、P1」
+
+--------------------------------
+task_complete
+--------------------------------
+
+既存タスクを完了したという内容。
+
+例:
+「A社へ連絡、完了」
+「A社への連絡終わった」
+「資料作成できた」
+「○○をDoneにして」
+
+この場合、
+task_nameには
+ALL TASKSから探すための
+タスク名だけを入れてください。
+
+例:
+
+入力:
+「A社へ連絡、完了」
+
+task_name:
+「A社へ連絡」
+
+--------------------------------
 conversation
-= 質問、相談、雑談、確認など
+--------------------------------
 
+質問、相談、雑談、確認など。
+
+例:
+「今日何したらいい？」
+「ありがとう」
+「これ動いてる？」
+
+--------------------------------
 clarification
-= タスクらしいが情報が曖昧で、
-勝手に登録すべきでない場合
-
-判断に迷った場合は
-conversation または clarification
-にしてください。
-
---------------------------------
-■ Area
 --------------------------------
 
-固定Areaがある場合は、
-必ずそのAreaを使ってください。
+何を完了したのか、
+何を登録したいのかが
+判断できない場合。
 
-Area候補:
+勝手に推測しないでください。
+
+--------------------------------
+Area
+--------------------------------
+
+固定Areaがある場合は
+必ず固定Areaを使用してください。
+
+候補:
 
 本業
 副業
@@ -277,89 +313,64 @@ Training
 Study
 Life
 
-#90-inbox の場合だけ
-文章からAreaを判断してください。
-
-#90-inbox でAreaを
-確信できない場合は
-clarification にしてください。
+#90-inboxだけは
+内容から判断してください。
 
 --------------------------------
-■ Project
+Project
 --------------------------------
 
-具体的なProjectが分かる場合だけ
-設定してください。
+分かる場合だけ設定。
 
-例えば、
-ALL Manager AI、
-Slack管理システム、
-副業管理ツールの開発に関する内容なら
+このALL Manager AIや
+Slack管理システムの開発なら
 
 副業管理ツール
 
 としてください。
 
-分からない場合は空文字です。
+不明なら空文字。
 
 --------------------------------
-■ Status
+Status
 --------------------------------
 
-新規タスクは基本 Ready。
+新規タスクは基本Ready。
 
-ユーザーが
-
-「今日やる」
-「今日中」
-「今からやる」
-「今日のタスク」
-
-など明確に今日実行する場合は
-Today。
+今日やることが明確ならToday。
 
 --------------------------------
-■ Priority
+Priority
 --------------------------------
 
-P1 = 最優先、緊急、絶対に落とせない
-P2 = 優先度高め、重要
+P1 = 最優先
+P2 = 高め
 P3 = 通常
-P4 = 低優先度、余裕があれば
+P4 = 低め
 
-明記も推測材料もなければ
-P3。
+指定なしならP3。
 
 --------------------------------
-■ Start
+Start
 --------------------------------
 
-開始日が明記されていれば
-YYYY-MM-DD にしてください。
+開始日をYYYY-MM-DD。
 
-「明日」
-「来週月曜」
-なども現在日付を基準に
-変換してください。
-
-開始日の指定がなければ
+指定なしなら
 ${today}
-です。
 
 --------------------------------
-■ Due
+Due
 --------------------------------
 
-期限が明記されている場合だけ
+期限がある場合だけ
 YYYY-MM-DD。
 
-期限がない場合は空文字。
+なければ空文字。
 
 --------------------------------
-■ Estimate
+Estimate
 --------------------------------
-
-必ず次から選んでください。
 
 15
 30
@@ -368,29 +379,19 @@ YYYY-MM-DD。
 90
 120
 
-明示されていればその値。
+から選択。
 
-明示されていない場合は
-作業内容から現実的に推定してください。
-
-判断できなければ30。
+指定なしなら現実的に推定。
+不明なら30。
 
 --------------------------------
-■ task_name
+reply
 --------------------------------
 
-実際にやる行動を、
-短く分かりやすくまとめてください。
+conversation または
+clarification の返答。
 
---------------------------------
-■ reply
---------------------------------
-
-conversation または clarification
-の場合にSlackへ返す
-短い自然な日本語です。
-
-task_create の場合は
+task_create / task_completeなら
 空文字で構いません。
 `,
 
@@ -403,7 +404,7 @@ task_create の場合は
               type: "json_schema",
 
               name:
-                "all_manager_task",
+                "all_manager_intent",
 
               strict: true,
 
@@ -416,6 +417,7 @@ task_create の場合は
 
                     enum: [
                       "task_create",
+                      "task_complete",
                       "conversation",
                       "clarification",
                     ],
@@ -532,9 +534,7 @@ task_create の場合は
     await response.json();
 
   const outputText =
-    getOpenAIOutputText(
-      data
-    );
+    getOpenAIOutputText(data);
 
   if (!outputText) {
     throw new Error(
@@ -548,60 +548,96 @@ task_create の場合は
 }
 
 // ========================================
-// ALL TASKSの列構成取得
+// ALL TASKS取得
 // ========================================
 
-async function getAllTasksSchema() {
-  const response =
-    await fetch(
-      "https://slack.com/api/slackLists.items.list",
-      {
-        method: "POST",
+async function getAllTasksData() {
+  let cursor = null;
 
-        headers: {
-          Authorization:
-            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+  let allItems = [];
 
-          "Content-Type":
-            "application/json",
-        },
+  let list = null;
 
-        body: JSON.stringify({
-          list_id:
-            ALL_TASKS_LIST_ID,
+  do {
+    const requestBody = {
+      list_id:
+        ALL_TASKS_LIST_ID,
 
-          limit: 1,
+      limit: 100,
 
-          include_list:
-            true,
-        }),
-      }
-    );
+      include_list:
+        list === null,
+    };
 
-  const data =
-    await response.json();
+    if (cursor) {
+      requestBody.cursor =
+        cursor;
+    }
 
-  if (!data.ok) {
-    console.error(
-      "List schema error:",
-      data
-    );
+    const response =
+      await fetch(
+        "https://slack.com/api/slackLists.items.list",
+        {
+          method: "POST",
 
-    throw new Error(
-      `List schema error: ${data.error}`
-    );
-  }
+          headers: {
+            Authorization:
+              `Bearer ${process.env.SLACK_BOT_TOKEN}`,
 
-  return (
-    data.list
-      ?.list_metadata
-      ?.schema ??
-    []
-  );
+            "Content-Type":
+              "application/json",
+          },
+
+          body:
+            JSON.stringify(
+              requestBody
+            ),
+        }
+      );
+
+    const data =
+      await response.json();
+
+    if (!data.ok) {
+      console.error(
+        "List read error:",
+        data
+      );
+
+      throw new Error(
+        `List read error: ${data.error}`
+      );
+    }
+
+    if (!list && data.list) {
+      list = data.list;
+    }
+
+    allItems =
+      allItems.concat(
+        data.items ?? []
+      );
+
+    cursor =
+      data.response_metadata
+        ?.next_cursor ||
+      null;
+  } while (cursor);
+
+  return {
+    schema:
+      list
+        ?.list_metadata
+        ?.schema ??
+      [],
+
+    items:
+      allItems,
+  };
 }
 
 // ========================================
-// 列検索ヘルパー
+// 列検索
 // ========================================
 
 function findColumnByKey(
@@ -704,7 +740,7 @@ function findSelectOption(
 }
 
 // ========================================
-// Rich Text作成
+// Rich Text
 // ========================================
 
 function makeRichTextField(
@@ -712,7 +748,8 @@ function makeRichTextField(
   text
 ) {
   return {
-    column_id: columnId,
+    column_id:
+      columnId,
 
     rich_text: [
       {
@@ -741,7 +778,162 @@ function makeRichTextField(
 }
 
 // ========================================
-// ALL TASKSに登録
+// タスク名取得
+// ========================================
+
+function getItemTaskName(
+  item,
+  nameColumnId
+) {
+  const field =
+    (item.fields ?? [])
+      .find(
+        (field) =>
+          field.column_id ===
+          nameColumnId
+      );
+
+  if (!field) {
+    return "";
+  }
+
+  if (field.text) {
+    return field.text.trim();
+  }
+
+  if (
+    typeof field.value ===
+    "string"
+  ) {
+    return field.value.trim();
+  }
+
+  return "";
+}
+
+// ========================================
+// タスク名比較用
+// ========================================
+
+function normalizeTaskName(
+  text
+) {
+  return String(text ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(
+      /[\s　。、,.!！?？「」『』（）()・\-ー]/g,
+      ""
+    )
+    .replace(
+      /(しました|します|しておく|する|終わった|完了した|完了)$/g,
+      ""
+    );
+}
+
+// ========================================
+// 対象タスク検索
+// ========================================
+
+function findMatchingTask(
+  items,
+  nameColumnId,
+  requestedName
+) {
+  const requested =
+    normalizeTaskName(
+      requestedName
+    );
+
+  const taskRows =
+    items
+      .map(
+        (item) => ({
+          item,
+          name:
+            getItemTaskName(
+              item,
+              nameColumnId
+            ),
+        })
+      )
+      .filter(
+        (row) =>
+          row.name
+      );
+
+  // 完全一致
+  const exact =
+    taskRows.filter(
+      (row) =>
+        normalizeTaskName(
+          row.name
+        ) === requested
+    );
+
+  if (
+    exact.length === 1
+  ) {
+    return {
+      type: "found",
+      row: exact[0],
+    };
+  }
+
+  if (
+    exact.length > 1
+  ) {
+    return {
+      type: "multiple",
+      rows: exact,
+    };
+  }
+
+  // 部分一致
+  const partial =
+    taskRows.filter(
+      (row) => {
+        const normalized =
+          normalizeTaskName(
+            row.name
+          );
+
+        return (
+          normalized.includes(
+            requested
+          ) ||
+          requested.includes(
+            normalized
+          )
+        );
+      }
+    );
+
+  if (
+    partial.length === 1
+  ) {
+    return {
+      type: "found",
+      row: partial[0],
+    };
+  }
+
+  if (
+    partial.length > 1
+  ) {
+    return {
+      type: "multiple",
+      rows: partial,
+    };
+  }
+
+  return {
+    type: "not_found",
+  };
+}
+
+// ========================================
+// 新規タスク登録
 // ========================================
 
 async function createTaskInSlackList(
@@ -749,10 +941,11 @@ async function createTaskInSlackList(
   slackUserId,
   originalText
 ) {
-  const schema =
-    await getAllTasksSchema();
+  const {
+    schema,
+  } =
+    await getAllTasksData();
 
-  // 名前
   const nameColumn =
     findColumnByKey(
       schema,
@@ -763,35 +956,30 @@ async function createTaskInSlackList(
       ["名前", "Name"]
     );
 
-  // 担当者
   const assigneeColumn =
     findColumnByKey(
       schema,
       "todo_assignee"
     );
 
-  // 期限日
   const dueColumn =
     findColumnByKey(
       schema,
       "todo_due_date"
     );
 
-  // Area
   const areaColumn =
     findColumnByNames(
       schema,
       ["Area"]
     );
 
-  // Project
   const projectColumn =
     findColumnByNames(
       schema,
       ["Project"]
     );
 
-  // Status
   const statusColumn =
     findSelectColumn(
       schema,
@@ -803,7 +991,6 @@ async function createTaskInSlackList(
       ]
     );
 
-  // Priority
   const priorityColumn =
     findSelectColumn(
       schema,
@@ -815,29 +1002,18 @@ async function createTaskInSlackList(
       ]
     );
 
-  // Start
   const startColumn =
     findColumnByNames(
       schema,
       ["Start"]
     );
 
-  // Estimate
   const estimateColumn =
-    findSelectColumn(
-      schema,
-      [
-        "15分",
-        "30分",
-        "60分",
-      ]
-    ) ||
     findColumnByNames(
       schema,
       ["Estimate"]
     );
 
-  // Last Update / 最終更新
   const lastUpdateColumn =
     findColumnByNames(
       schema,
@@ -847,11 +1023,13 @@ async function createTaskInSlackList(
       ]
     );
 
-  // Notes
   const notesColumn =
     findColumnByNames(
       schema,
-      ["Notes", "メモ"]
+      [
+        "Notes",
+        "メモ",
+      ]
     );
 
   if (!nameColumn) {
@@ -862,7 +1040,6 @@ async function createTaskInSlackList(
 
   const fields = [];
 
-  // 名前
   fields.push(
     makeRichTextField(
       nameColumn.id,
@@ -870,7 +1047,6 @@ async function createTaskInSlackList(
     )
   );
 
-  // 担当者
   if (
     assigneeColumn &&
     slackUserId
@@ -885,7 +1061,6 @@ async function createTaskInSlackList(
     });
   }
 
-  // 期限日
   if (
     dueColumn &&
     task.due_date
@@ -900,7 +1075,6 @@ async function createTaskInSlackList(
     });
   }
 
-  // Area
   if (
     areaColumn &&
     task.area
@@ -913,7 +1087,6 @@ async function createTaskInSlackList(
     );
   }
 
-  // Project
   if (
     projectColumn &&
     task.project
@@ -926,7 +1099,6 @@ async function createTaskInSlackList(
     );
   }
 
-  // Status
   if (
     statusColumn &&
     task.status
@@ -949,7 +1121,6 @@ async function createTaskInSlackList(
     }
   }
 
-  // Priority
   if (
     priorityColumn &&
     task.priority
@@ -972,7 +1143,6 @@ async function createTaskInSlackList(
     }
   }
 
-  // Start
   if (
     startColumn &&
     task.start_date
@@ -987,18 +1157,14 @@ async function createTaskInSlackList(
     });
   }
 
-  // Estimate
   if (
     estimateColumn &&
     task.estimate_minutes
   ) {
-    const estimateLabel =
-      `${task.estimate_minutes}分`;
-
     const option =
       findSelectOption(
         estimateColumn,
-        estimateLabel
+        `${task.estimate_minutes}分`
       );
 
     if (option) {
@@ -1013,7 +1179,6 @@ async function createTaskInSlackList(
     }
   }
 
-  // 最終更新
   if (lastUpdateColumn) {
     fields.push({
       column_id:
@@ -1025,7 +1190,6 @@ async function createTaskInSlackList(
     });
   }
 
-  // Notes
   if (
     notesColumn &&
     originalText
@@ -1052,13 +1216,14 @@ async function createTaskInSlackList(
             "application/json",
         },
 
-        body: JSON.stringify({
-          list_id:
-            ALL_TASKS_LIST_ID,
+        body:
+          JSON.stringify({
+            list_id:
+              ALL_TASKS_LIST_ID,
 
-          initial_fields:
-            fields,
-        }),
+            initial_fields:
+              fields,
+          }),
       }
     );
 
@@ -1067,12 +1232,12 @@ async function createTaskInSlackList(
 
   if (!data.ok) {
     console.error(
-      "Slack List create error:",
+      "List create error:",
       data
     );
 
     throw new Error(
-      `Slack List create error: ${data.error}`
+      `List create error: ${data.error}`
     );
   }
 
@@ -1080,7 +1245,209 @@ async function createTaskInSlackList(
 }
 
 // ========================================
-// Slackへ返信
+// タスク完了
+// ========================================
+
+async function completeTask(
+  requestedTaskName
+) {
+  const {
+    schema,
+    items,
+  } =
+    await getAllTasksData();
+
+  const nameColumn =
+    findColumnByKey(
+      schema,
+      "name"
+    ) ||
+    findColumnByNames(
+      schema,
+      ["名前", "Name"]
+    );
+
+  const completedColumn =
+    findColumnByKey(
+      schema,
+      "todo_completed"
+    );
+
+  const statusColumn =
+    findSelectColumn(
+      schema,
+      [
+        "Ready",
+        "Today",
+        "Doing",
+        "Done",
+      ]
+    );
+
+  const lastUpdateColumn =
+    findColumnByNames(
+      schema,
+      [
+        "Last Update",
+        "最終更新",
+      ]
+    );
+
+  if (!nameColumn) {
+    throw new Error(
+      "名前列が見つかりません"
+    );
+  }
+
+  const match =
+    findMatchingTask(
+      items,
+      nameColumn.id,
+      requestedTaskName
+    );
+
+  if (
+    match.type ===
+    "not_found"
+  ) {
+    return {
+      status:
+        "not_found",
+    };
+  }
+
+  if (
+    match.type ===
+    "multiple"
+  ) {
+    return {
+      status:
+        "multiple",
+
+      names:
+        match.rows
+          .slice(0, 5)
+          .map(
+            (row) =>
+              row.name
+          ),
+    };
+  }
+
+  const rowId =
+    match.row.item.id;
+
+  const cells = [];
+
+  // Slack標準の完了チェック
+  if (completedColumn) {
+    cells.push({
+      row_id:
+        rowId,
+
+      column_id:
+        completedColumn.id,
+
+      checkbox:
+        true,
+    });
+  }
+
+  // StatusをDoneに
+  if (statusColumn) {
+    const doneOption =
+      findSelectOption(
+        statusColumn,
+        "Done"
+      );
+
+    if (doneOption) {
+      cells.push({
+        row_id:
+          rowId,
+
+        column_id:
+          statusColumn.id,
+
+        select: [
+          doneOption,
+        ],
+      });
+    }
+  }
+
+  // 最終更新を今日に
+  if (lastUpdateColumn) {
+    cells.push({
+      row_id:
+        rowId,
+
+      column_id:
+        lastUpdateColumn.id,
+
+      date: [
+        getTodayJST(),
+      ],
+    });
+  }
+
+  if (
+    cells.length === 0
+  ) {
+    throw new Error(
+      "更新できる列が見つかりません"
+    );
+  }
+
+  const response =
+    await fetch(
+      "https://slack.com/api/slackLists.items.update",
+      {
+        method: "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+
+          "Content-Type":
+            "application/json",
+        },
+
+        body:
+          JSON.stringify({
+            list_id:
+              ALL_TASKS_LIST_ID,
+
+            cells,
+          }),
+      }
+    );
+
+  const data =
+    await response.json();
+
+  if (!data.ok) {
+    console.error(
+      "List update error:",
+      data
+    );
+
+    throw new Error(
+      `List update error: ${data.error}`
+    );
+  }
+
+  return {
+    status:
+      "completed",
+
+    taskName:
+      match.row.name,
+  };
+}
+
+// ========================================
+// Slack返信
 // ========================================
 
 async function postSlackMessage(
@@ -1101,10 +1468,11 @@ async function postSlackMessage(
             "application/json",
         },
 
-        body: JSON.stringify({
-          channel,
-          text,
-        }),
+        body:
+          JSON.stringify({
+            channel,
+            text,
+          }),
       }
     );
 
@@ -1126,7 +1494,6 @@ async function postSlackMessage(
 async function processSlackEvent(
   event
 ) {
-  // 通常メッセージだけ
   if (
     event.type !==
     "message"
@@ -1134,7 +1501,6 @@ async function processSlackEvent(
     return;
   }
 
-  // Bot自身・特殊投稿を無視
   if (
     event.bot_id ||
     event.subtype
@@ -1150,7 +1516,6 @@ async function processSlackEvent(
     return;
   }
 
-  // チャンネル名取得
   const channelName =
     await getChannelName(
       event.channel
@@ -1160,8 +1525,6 @@ async function processSlackEvent(
     return;
   }
 
-  // 入力用チャンネル以外では
-  // AIは反応しない
   if (
     !INPUT_CHANNELS.has(
       channelName
@@ -1183,7 +1546,10 @@ async function processSlackEvent(
         fixedArea
       );
 
+    // ====================================
     // 普通の会話
+    // ====================================
+
     if (
       result.intent ===
       "conversation"
@@ -1197,7 +1563,10 @@ async function processSlackEvent(
       return;
     }
 
+    // ====================================
     // 確認が必要
+    // ====================================
+
     if (
       result.intent ===
       "clarification"
@@ -1205,19 +1574,73 @@ async function processSlackEvent(
       await postSlackMessage(
         event.channel,
         result.reply ||
-          "どのAreaの内容か教えてください。"
+          "もう少し詳しく教えてください。"
       );
 
       return;
     }
 
-    // Area決定
+    // ====================================
+    // 完了処理
+    // ====================================
+
+    if (
+      result.intent ===
+      "task_complete"
+    ) {
+      const completeResult =
+        await completeTask(
+          result.task_name
+        );
+
+      if (
+        completeResult.status ===
+        "not_found"
+      ) {
+        await postSlackMessage(
+          event.channel,
+          `⚠️「${result.task_name}」に一致するタスクが見つかりませんでした。`
+        );
+
+        return;
+      }
+
+      if (
+        completeResult.status ===
+        "multiple"
+      ) {
+        const names =
+          completeResult.names
+            .map(
+              (name) =>
+                `・${name}`
+            )
+            .join("\n");
+
+        await postSlackMessage(
+          event.channel,
+          `候補が複数あります。どれを完了しますか？\n${names}`
+        );
+
+        return;
+      }
+
+      await postSlackMessage(
+        event.channel,
+        `✅ 完了にしました\n・${completeResult.taskName}`
+      );
+
+      return;
+    }
+
+    // ====================================
+    // 新規タスク
+    // ====================================
+
     const finalArea =
       fixedArea ||
       result.area;
 
-    // InboxでArea不明なら
-    // 勝手に登録しない
     if (!finalArea) {
       await postSlackMessage(
         event.channel,
@@ -1250,7 +1673,8 @@ async function processSlackEvent(
         getTodayJST(),
 
       due_date:
-        result.due_date || "",
+        result.due_date ||
+        "",
 
       estimate_minutes:
         result.estimate_minutes ||
@@ -1342,7 +1766,6 @@ export async function POST(
     const body =
       JSON.parse(rawBody);
 
-    // Slack URL検証
     if (
       body.type ===
       "url_verification"
@@ -1360,7 +1783,6 @@ export async function POST(
       );
     }
 
-    // Slackイベント
     if (
       body.type ===
       "event_callback"
@@ -1401,7 +1823,7 @@ export async function POST(
 }
 
 // ========================================
-// ブラウザ動作確認
+// 動作確認
 // ========================================
 
 export async function GET() {
@@ -1410,7 +1832,7 @@ export async function GET() {
     status:
       "ALL Manager AI is running",
     mode:
-      "full-task-create",
+      "task-create-and-complete",
     date:
       getTodayJST(),
   });
