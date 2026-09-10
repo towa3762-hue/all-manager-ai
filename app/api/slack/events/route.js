@@ -131,7 +131,7 @@ async function getChannelName(channelId) {
 }
 
 // ========================================
-// 直近の会話履歴
+// 会話履歴
 // ========================================
 
 async function getRecentConversationHistory(
@@ -224,7 +224,7 @@ function historyToText(history) {
 }
 
 // ========================================
-// OpenAI出力
+// OpenAI
 // ========================================
 
 function getOpenAIOutputText(data) {
@@ -248,10 +248,6 @@ function getOpenAIOutputText(data) {
     .join("\n")
     .trim();
 }
-
-// ========================================
-// 自然文解析
-// ========================================
 
 async function analyzeSlackMessage(
   userText,
@@ -301,101 +297,97 @@ ${fixedArea || "なし"}
 直近の会話:
 ${recentHistory}
 
-今回のユーザーメッセージと
+今回のメッセージと
 直近の会話を合わせて判断してください。
 
---------------------------------
+================================
 intent
---------------------------------
+================================
 
-次の7種類です。
+次の9種類です。
 
 task_create
-新しいタスクを作る。
+新しいタスクを登録する。
 
 task_complete
 既存タスクを完了する。
 
 task_complete_selection
-完了候補を提示した後に
-「1番」「P1のやつ」などで
-候補を選択した。
+完了候補の中から選択する。
 
 task_postpone
-既存タスクの開始日を延期・変更する。
-
-例:
-「A社へ連絡を明日に延期」
-「資料作成を9/20に移動」
-「A社のタスクを来週月曜日にして」
+既存タスクのStartを変更する。
 
 task_postpone_selection
-延期対象の候補を提示した後に
-「1番」
-「期限9/15のやつ」
-「P1のやつ」
-などで候補を選択した。
+延期候補の中から選択する。
+
+task_priority
+既存タスクのPriorityを変更する。
+
+task_priority_selection
+優先度変更候補の中から選択する。
 
 conversation
 質問、相談、雑談。
 
 clarification
-安全に判断できないため
-ユーザーへの確認が必要。
+安全に判断できず確認が必要。
 
---------------------------------
-task_postpone
---------------------------------
-
-task_name:
-対象タスクの名前。
-
-new_start_date:
-変更後のStartを
-YYYY-MM-DDで返す。
-
-「明日」
-「来週月曜」
-などは
-${today}
-を基準に正確な日付へ変換する。
-
-「来週」
-「そのうち」
-など日付を1日に特定できない場合は
-勝手に決めずclarification。
-
-new_due_date:
-ユーザーが期限そのものも
-変更すると明示した場合だけ設定。
+================================
+task_priority
+================================
 
 例:
 
-「A社を明日に延期」
-→ new_start_date = 明日
-→ new_due_date = ""
+「A社へ連絡をP2にして」
+「資料作成をP1に変更」
+「このタスクの優先度を下げて」
+「○○を最優先にして」
 
-「A社を明日に延期、期限も9/20にして」
-→ new_start_date = 明日
-→ new_due_date = 9/20
+task_nameには
+変更対象タスク名を入れる。
 
-重要:
-単なる延期では期限を勝手に変更しない。
+new_priorityには
+変更後のPriorityを入れる。
 
---------------------------------
-task_postpone_selection
---------------------------------
+P1 = 最優先
+P2 = 高め
+P3 = 通常
+P4 = 低め
 
-直前の会話で延期対象の候補が
-番号付きで表示されている場合に使う。
+「最優先」
+→ P1
+
+「優先度高め」
+→ P2
+
+「普通でいい」
+→ P3
+
+「優先度低め」
+→ P4
+
+ただし
+「優先度上げて」
+「優先度下げて」
+だけでは現在値が分からないため、
+勝手に決めずclarificationにする。
+
+================================
+task_priority_selection
+================================
+
+直前にAIが
+優先度変更対象の候補を
+番号付きで出している場合。
 
 例:
 
 ユーザー:
-A社へ連絡を明日に延期
+A社へ連絡をP2にして
 
 AI:
-候補が3件あります...
+候補が複数あります...
 
 ユーザー:
 1番
@@ -403,45 +395,92 @@ AI:
 この場合:
 
 intent =
-task_postpone_selection
+task_priority_selection
+
+task_name =
+直前に指定されていたタスク名
 
 selection_index =
 1
 
-task_name =
-直前に延期しようとしていたタスク名
+new_priority =
+直前に指定されていたP2
 
-new_start_date =
-直前の依頼で指定された変更後の日付
-
-new_due_date =
-直前の依頼で期限変更も明示されていた場合のみ設定
-
+「P1のやつ」
 「期限9/15のやつ」
-という候補選択は、
-既存タスクを特定するための表現であり、
-新しい期限指定ではありません。
+などでも、
+会話履歴に表示された候補から
+1つに特定できれば
+selection_indexを返す。
 
---------------------------------
-task_complete_selection
---------------------------------
+候補を特定できなければ
+clarification。
 
-直前に完了候補が表示されており、
+================================
+task_postpone
+================================
+
+例:
+
+「A社へ連絡を明日に延期」
+「資料作成を9/20に移動」
+
+task_nameには対象名。
+
+new_start_dateには
+変更後のStartを
+YYYY-MM-DDで返す。
+
+「明日」などは
+${today}
+を基準に変換。
+
+new_due_dateは、
+期限変更を明示した場合だけ設定。
+
+単なる延期では
+期限を変更しない。
+
+================================
+task_postpone_selection
+================================
+
+延期候補を提示したあとの
 
 「1番」
 「2番」
+
+など。
+
+直前のnew_start_dateと
+new_due_dateを引き継ぐ。
+
+================================
+task_complete
+================================
+
+例:
+
+「A社へ連絡、完了」
+「資料作成終わった」
+
+task_nameには
+対象タスク名。
+
+================================
+task_complete_selection
+================================
+
+完了候補提示後の
+
+「1番」
 「P1のやつ」
 
-などで候補を選んだ場合。
+など。
 
-selection_indexには
-候補番号を入れる。
-
---------------------------------
+================================
 Area
---------------------------------
-
-候補:
+================================
 
 本業
 副業
@@ -449,22 +488,23 @@ Training
 Study
 Life
 
-固定Areaがあるチャンネルでは
-必ず固定Areaを使用。
+固定Areaがある場合は
+必ず固定Area。
 
-#90-inboxだけ内容から判断。
+#90-inboxの場合だけ
+内容から判断。
 
-判断できなければclarification。
+不明ならclarification。
 
---------------------------------
+================================
 Project
---------------------------------
+================================
 
 分かる場合だけ設定。
 
-ALL Manager AIや
+ALL Manager AI、
 Slack管理システム、
-この管理ツール開発なら
+この管理ツールの開発は
 
 副業管理ツール
 
@@ -472,16 +512,16 @@ Slack管理システム、
 
 不明なら空文字。
 
---------------------------------
+================================
 新規タスク
---------------------------------
+================================
 
-Status:
+status:
 
 通常 = Ready
 今日実行 = Today
 
-Priority:
+priority:
 
 P1 = 最優先
 P2 = 高め
@@ -490,17 +530,17 @@ P4 = 低め
 
 指定なし = P3
 
-Start:
+start_date:
 
 YYYY-MM-DD
 指定なし = ${today}
 
-Due:
+due_date:
 
-期限がある場合だけ
+期限がある場合のみ
 YYYY-MM-DD
 
-Estimate:
+estimate_minutes:
 
 15
 30
@@ -509,25 +549,22 @@ Estimate:
 90
 120
 
-から選択。
-
 指定なしなら推定。
 不明なら30。
 
---------------------------------
+================================
 重要
---------------------------------
+================================
 
-・勝手に新規タスクを作らない
-・勝手に期限を変更しない
-・文脈が必要なら会話履歴を見る
-・特定できない場合はclarification
-・selectionでは直前の操作内容も引き継ぐ
+・会話履歴を必要に応じて使う
+・曖昧なら勝手に変更しない
+・候補選択時は直前の操作内容を引き継ぐ
+・普通の質問をタスク登録しない
 `,
 
           input: userText,
 
-          max_output_tokens: 500,
+          max_output_tokens: 550,
 
           text: {
             format: {
@@ -551,6 +588,8 @@ Estimate:
                       "task_complete_selection",
                       "task_postpone",
                       "task_postpone_selection",
+                      "task_priority",
+                      "task_priority_selection",
                       "conversation",
                       "clarification",
                     ],
@@ -645,6 +684,18 @@ Estimate:
                     type: "string",
                   },
 
+                  new_priority: {
+                    type: "string",
+
+                    enum: [
+                      "",
+                      "P1",
+                      "P2",
+                      "P3",
+                      "P4",
+                    ],
+                  },
+
                   reply: {
                     type: "string",
                   },
@@ -663,6 +714,7 @@ Estimate:
                   "estimate_minutes",
                   "new_start_date",
                   "new_due_date",
+                  "new_priority",
                   "reply",
                 ],
 
@@ -744,10 +796,9 @@ async function getAllTasksData() {
               "application/json",
           },
 
-          body:
-            JSON.stringify(
-              requestBody
-            ),
+          body: JSON.stringify(
+            requestBody
+          ),
         }
       );
 
@@ -825,9 +876,7 @@ function findColumnByNames(
   );
 }
 
-function getChoiceLabels(
-  column
-) {
+function getChoiceLabels(column) {
   return (
     column
       ?.options
@@ -848,8 +897,7 @@ function findSelectColumn(
   return schema.find(
     (column) => {
       if (
-        column.type !==
-        "select"
+        column.type !== "select"
       ) {
         return false;
       }
@@ -884,9 +932,8 @@ function findSelectOption(
           String(
             item.label ?? ""
           ).toLowerCase() ===
-          String(
-            label
-          ).toLowerCase()
+          String(label)
+            .toLowerCase()
       )
       ?.value ??
     null
@@ -954,8 +1001,7 @@ function getItemTaskName(
   }
 
   if (
-    typeof field.value ===
-    "string"
+    typeof field.value === "string"
   ) {
     return field.value.trim();
   }
@@ -977,10 +1023,7 @@ function getItemDate(
       column.id
     );
 
-  return (
-    field?.date?.[0] ??
-    ""
-  );
+  return field?.date?.[0] ?? "";
 }
 
 function getItemSelectLabel(
@@ -1099,9 +1142,7 @@ function findMatchingTaskRows(
     );
 
   if (exact.length) {
-    return sortTaskRows(
-      exact
-    );
+    return sortTaskRows(exact);
   }
 
   const partial =
@@ -1123,9 +1164,7 @@ function findMatchingTaskRows(
       }
     );
 
-  return sortTaskRows(
-    partial
-  );
+  return sortTaskRows(partial);
 }
 
 // ========================================
@@ -1142,20 +1181,16 @@ function formatCreatedAtJST(
   return new Intl.DateTimeFormat(
     "ja-JP",
     {
-      timeZone:
-        "Asia/Tokyo",
-
+      timeZone: "Asia/Tokyo",
       month: "numeric",
       day: "numeric",
-
       hour: "2-digit",
       minute: "2-digit",
     }
   ).format(
     new Date(
-      Number(
-        unixSeconds
-      ) * 1000
+      Number(unixSeconds) *
+        1000
     )
   );
 }
@@ -1629,7 +1664,56 @@ async function getTaskMatches(
 }
 
 // ========================================
-// 完了処理
+// 共通: 候補選択
+// ========================================
+
+function selectTaskRow(
+  matches,
+  selectionIndex
+) {
+  if (!matches.length) {
+    return {
+      status: "not_found",
+    };
+  }
+
+  if (
+    matches.length > 1 &&
+    selectionIndex === 0
+  ) {
+    return {
+      status: "multiple",
+    };
+  }
+
+  const row =
+    selectionIndex > 0
+      ? matches[
+          selectionIndex - 1
+        ]
+      : matches[0];
+
+  if (!row) {
+    return {
+      status:
+        "invalid_selection",
+
+      count:
+        Math.min(
+          matches.length,
+          8
+        ),
+    };
+  }
+
+  return {
+    status: "found",
+    row,
+  };
+}
+
+// ========================================
+// 完了
 // ========================================
 
 async function completeTask(
@@ -1644,15 +1728,29 @@ async function completeTask(
       requestedTaskName
     );
 
-  if (!matches.length) {
-    return {
-      status: "not_found",
-    };
+  const selected =
+    selectTaskRow(
+      matches,
+      selectionIndex
+    );
+
+  if (
+    selected.status ===
+    "not_found"
+  ) {
+    return selected;
   }
 
   if (
-    matches.length > 1 &&
-    selectionIndex === 0
+    selected.status ===
+    "invalid_selection"
+  ) {
+    return selected;
+  }
+
+  if (
+    selected.status ===
+    "multiple"
   ) {
     return {
       status: "multiple",
@@ -1672,24 +1770,7 @@ async function completeTask(
   }
 
   const selectedRow =
-    selectionIndex > 0
-      ? matches[
-          selectionIndex - 1
-        ]
-      : matches[0];
-
-  if (!selectedRow) {
-    return {
-      status:
-        "invalid_selection",
-
-      count:
-        Math.min(
-          matches.length,
-          8
-        ),
-    };
-  }
+    selected.row;
 
   const completedColumn =
     findColumnByKey(
@@ -1806,12 +1887,14 @@ async function completeTask(
 
   return {
     status: "completed",
-    taskName: selectedRow.name,
+
+    taskName:
+      selectedRow.name,
   };
 }
 
 // ========================================
-// 延期処理
+// 延期
 // ========================================
 
 async function postponeTask(
@@ -1834,15 +1917,24 @@ async function postponeTask(
       requestedTaskName
     );
 
-  if (!matches.length) {
-    return {
-      status: "not_found",
-    };
+  const selected =
+    selectTaskRow(
+      matches,
+      selectionIndex
+    );
+
+  if (
+    selected.status ===
+    "not_found" ||
+    selected.status ===
+    "invalid_selection"
+  ) {
+    return selected;
   }
 
   if (
-    matches.length > 1 &&
-    selectionIndex === 0
+    selected.status ===
+    "multiple"
   ) {
     return {
       status: "multiple",
@@ -1862,24 +1954,7 @@ async function postponeTask(
   }
 
   const selectedRow =
-    selectionIndex > 0
-      ? matches[
-          selectionIndex - 1
-        ]
-      : matches[0];
-
-  if (!selectedRow) {
-    return {
-      status:
-        "invalid_selection",
-
-      count:
-        Math.min(
-          matches.length,
-          8
-        ),
-    };
-  }
+    selected.row;
 
   const startColumn =
     findColumnByNames(
@@ -1922,7 +1997,6 @@ async function postponeTask(
     },
   ];
 
-  // 期限は明示された時だけ変更
   if (
     newDueDate &&
     dueColumn
@@ -2002,6 +2076,184 @@ async function postponeTask(
 
     dueDate:
       newDueDate || "",
+  };
+}
+
+// ========================================
+// 優先度変更
+// ========================================
+
+async function changeTaskPriority(
+  requestedTaskName,
+  selectionIndex,
+  newPriority
+) {
+  if (!newPriority) {
+    return {
+      status:
+        "priority_required",
+    };
+  }
+
+  const {
+    schema,
+    matches,
+  } =
+    await getTaskMatches(
+      requestedTaskName
+    );
+
+  const selected =
+    selectTaskRow(
+      matches,
+      selectionIndex
+    );
+
+  if (
+    selected.status ===
+    "not_found" ||
+    selected.status ===
+    "invalid_selection"
+  ) {
+    return selected;
+  }
+
+  if (
+    selected.status ===
+    "multiple"
+  ) {
+    return {
+      status: "multiple",
+
+      candidates:
+        matches
+          .slice(0, 8)
+          .map(
+            (row, index) =>
+              buildCandidateLine(
+                row,
+                schema,
+                index + 1
+              )
+          ),
+    };
+  }
+
+  const selectedRow =
+    selected.row;
+
+  const priorityColumn =
+    findSelectColumn(
+      schema,
+      [
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+      ]
+    );
+
+  const lastUpdateColumn =
+    findColumnByNames(
+      schema,
+      [
+        "Last Update",
+        "最終更新",
+      ]
+    );
+
+  if (!priorityColumn) {
+    throw new Error(
+      "Priority列が見つかりません"
+    );
+  }
+
+  const priorityOption =
+    findSelectOption(
+      priorityColumn,
+      newPriority
+    );
+
+  if (!priorityOption) {
+    throw new Error(
+      `${newPriority} の選択肢が見つかりません`
+    );
+  }
+
+  const cells = [
+    {
+      row_id:
+        selectedRow.item.id,
+
+      column_id:
+        priorityColumn.id,
+
+      select: [
+        priorityOption,
+      ],
+    },
+  ];
+
+  if (lastUpdateColumn) {
+    cells.push({
+      row_id:
+        selectedRow.item.id,
+
+      column_id:
+        lastUpdateColumn.id,
+
+      date: [
+        getTodayJST(),
+      ],
+    });
+  }
+
+  const response =
+    await fetch(
+      "https://slack.com/api/slackLists.items.update",
+      {
+        method: "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+
+          "Content-Type":
+            "application/json",
+        },
+
+        body: JSON.stringify({
+          list_id:
+            ALL_TASKS_LIST_ID,
+
+          cells,
+        }),
+      }
+    );
+
+  const data =
+    await response.json();
+
+  if (!data.ok) {
+    console.error(
+      "Priority update error:",
+      data
+    );
+
+    throw new Error(
+      `Priority update error: ${data.error}`
+    );
+  }
+
+  return {
+    status:
+      "priority_changed",
+
+    taskName:
+      selectedRow.name,
+
+    priority:
+      newPriority,
   };
 }
 
@@ -2172,6 +2424,70 @@ async function handlePostponeResult(
 }
 
 // ========================================
+// 優先度変更結果
+// ========================================
+
+async function handlePriorityResult(
+  channel,
+  result
+) {
+  if (
+    result.status ===
+    "priority_required"
+  ) {
+    await postSlackMessage(
+      channel,
+      "P1〜P4のどれに変更しますか？"
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "not_found"
+  ) {
+    await postSlackMessage(
+      channel,
+      "⚠️ 一致するタスクが見つかりませんでした。"
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "invalid_selection"
+  ) {
+    await postSlackMessage(
+      channel,
+      `その番号はありません。1〜${result.count}番から選んでください。`
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "multiple"
+  ) {
+    await postSlackMessage(
+      channel,
+      `候補が複数あります。どれの優先度を変更しますか？\n${result.candidates.join(
+        "\n"
+      )}\n\n「1番」のように返してください。`
+    );
+
+    return;
+  }
+
+  await postSlackMessage(
+    channel,
+    `✅ 優先度を変更しました\n・${result.taskName}\n・Priority: ${result.priority}`
+  );
+}
+
+// ========================================
 // Slackメッセージ処理
 // ========================================
 
@@ -2234,10 +2550,6 @@ async function processSlackEvent(
         history
       );
 
-    // ------------------------------------
-    // 普通の会話
-    // ------------------------------------
-
     if (
       result.intent ===
       "conversation"
@@ -2249,10 +2561,6 @@ async function processSlackEvent(
 
       return;
     }
-
-    // ------------------------------------
-    // 確認
-    // ------------------------------------
 
     if (
       result.intent ===
@@ -2266,10 +2574,6 @@ async function processSlackEvent(
 
       return;
     }
-
-    // ------------------------------------
-    // 完了
-    // ------------------------------------
 
     if (
       result.intent ===
@@ -2289,10 +2593,6 @@ async function processSlackEvent(
       return;
     }
 
-    // ------------------------------------
-    // 完了候補選択
-    // ------------------------------------
-
     if (
       result.intent ===
       "task_complete_selection"
@@ -2310,10 +2610,6 @@ async function processSlackEvent(
 
       return;
     }
-
-    // ------------------------------------
-    // 延期
-    // ------------------------------------
 
     if (
       result.intent ===
@@ -2335,10 +2631,6 @@ async function processSlackEvent(
       return;
     }
 
-    // ------------------------------------
-    // 延期候補選択
-    // ------------------------------------
-
     if (
       result.intent ===
       "task_postpone_selection"
@@ -2359,9 +2651,47 @@ async function processSlackEvent(
       return;
     }
 
-    // ------------------------------------
+    if (
+      result.intent ===
+      "task_priority"
+    ) {
+      const priorityResult =
+        await changeTaskPriority(
+          result.task_name,
+          0,
+          result.new_priority
+        );
+
+      await handlePriorityResult(
+        event.channel,
+        priorityResult
+      );
+
+      return;
+    }
+
+    if (
+      result.intent ===
+      "task_priority_selection"
+    ) {
+      const priorityResult =
+        await changeTaskPriority(
+          result.task_name,
+          result.selection_index,
+          result.new_priority
+        );
+
+      await handlePriorityResult(
+        event.channel,
+        priorityResult
+      );
+
+      return;
+    }
+
+    // ====================================
     // 新規タスク
-    // ------------------------------------
+    // ====================================
 
     const finalArea =
       fixedArea ||
@@ -2454,9 +2784,7 @@ async function processSlackEvent(
 // Slack Events API
 // ========================================
 
-export async function POST(
-  request
-) {
+export async function POST(request) {
   try {
     const rawBody =
       await request.text();
@@ -2552,13 +2880,10 @@ export async function POST(
 export async function GET() {
   return Response.json({
     ok: true,
-
     status:
       "ALL Manager AI is running",
-
     mode:
-      "create-complete-postpone",
-
+      "create-complete-postpone-priority",
     date:
       getTodayJST(),
   });
