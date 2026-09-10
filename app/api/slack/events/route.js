@@ -22,6 +22,10 @@ const INPUT_CHANNELS = new Set([
   "90-inbox",
 ]);
 
+// ========================================
+// 日本時間
+// ========================================
+
 function getTodayJST() {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Tokyo",
@@ -39,6 +43,10 @@ function getTodayJST() {
   return `${values.year}-${values.month}-${values.day}`;
 }
 
+// ========================================
+// Slack署名確認
+// ========================================
+
 function verifySlackRequest(
   rawBody,
   timestamp,
@@ -47,11 +55,7 @@ function verifySlackRequest(
   const secret =
     process.env.SLACK_SIGNING_SECRET;
 
-  if (
-    !secret ||
-    !timestamp ||
-    !signature
-  ) {
+  if (!secret || !timestamp || !signature) {
     return false;
   }
 
@@ -148,7 +152,7 @@ async function getChannelName(
 }
 
 // ========================================
-// 直近のSlack会話履歴取得
+// 直近のSlack会話履歴
 // ========================================
 
 async function getRecentConversationHistory(
@@ -264,8 +268,7 @@ function getOpenAIOutputText(
   )
     .filter(
       (item) =>
-        item.type ===
-        "message"
+        item.type === "message"
     )
     .flatMap(
       (item) =>
@@ -676,9 +679,7 @@ conversation / clarification
 
 async function getAllTasksData() {
   let cursor = null;
-
   let items = [];
-
   let list = null;
 
   do {
@@ -1244,15 +1245,11 @@ function buildCandidateLine(
   const details = [];
 
   if (status) {
-    details.push(
-      status
-    );
+    details.push(status);
   }
 
   if (priority) {
-    details.push(
-      priority
-    );
+    details.push(priority);
   }
 
   if (start) {
@@ -1268,9 +1265,7 @@ function buildCandidateLine(
   }
 
   if (estimate) {
-    details.push(
-      estimate
-    );
+    details.push(estimate);
   }
 
   if (created) {
@@ -1731,6 +1726,10 @@ async function completeTask(
 
   const cells = [];
 
+  // ====================================
+  // 完了済みチェック
+  // ====================================
+
   if (
     completedColumn
   ) {
@@ -1741,11 +1740,14 @@ async function completeTask(
       column_id:
         completedColumn.id,
 
-      checkbox: [
+      checkbox:
         true,
-      ],
     });
   }
+
+  // ====================================
+  // Status = Done
+  // ====================================
 
   if (
     statusColumn
@@ -1772,6 +1774,10 @@ async function completeTask(
       });
     }
   }
+
+  // ====================================
+  // 最終更新 = 今日
+  // ====================================
 
   if (
     lastUpdateColumn
@@ -1999,6 +2005,7 @@ async function processSlackEvent(
         history
       );
 
+    // 普通の会話
     if (
       result.intent ===
       "conversation"
@@ -2012,6 +2019,7 @@ async function processSlackEvent(
       return;
     }
 
+    // 確認
     if (
       result.intent ===
       "clarification"
@@ -2025,6 +2033,7 @@ async function processSlackEvent(
       return;
     }
 
+    // 完了
     if (
       result.intent ===
       "task_complete"
@@ -2043,6 +2052,7 @@ async function processSlackEvent(
       return;
     }
 
+    // 候補選択して完了
     if (
       result.intent ===
       "task_complete_selection"
@@ -2060,6 +2070,10 @@ async function processSlackEvent(
 
       return;
     }
+
+    // ====================================
+    // 新規タスク
+    // ====================================
 
     const finalArea =
       fixedArea ||
