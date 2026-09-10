@@ -5,10 +5,6 @@ export const runtime = "nodejs";
 
 const ALL_TASKS_LIST_ID = "F0BT8TP1U5S";
 
-// ========================================
-// 入力チャンネル
-// ========================================
-
 const CHANNEL_AREA_MAP = {
   "10-main-work": "本業",
   "20-side-business": "副業",
@@ -26,20 +22,13 @@ const INPUT_CHANNELS = new Set([
   "90-inbox",
 ]);
 
-// ========================================
-// 日本時間
-// ========================================
-
 function getTodayJST() {
-  const parts = new Intl.DateTimeFormat(
-    "en-US",
-    {
-      timeZone: "Asia/Tokyo",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    }
-  ).formatToParts(new Date());
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
 
   const values = {};
 
@@ -49,10 +38,6 @@ function getTodayJST() {
 
   return `${values.year}-${values.month}-${values.day}`;
 }
-
-// ========================================
-// Slack署名確認
-// ========================================
 
 function verifySlackRequest(
   rawBody,
@@ -137,8 +122,6 @@ async function getChannelName(
     await fetch(
       url.toString(),
       {
-        method: "GET",
-
         headers: {
           Authorization:
             `Bearer ${process.env.SLACK_BOT_TOKEN}`,
@@ -165,16 +148,124 @@ async function getChannelName(
 }
 
 // ========================================
-// OpenAI出力取得
+// 直近のSlack会話履歴取得
+// ========================================
+
+async function getRecentConversationHistory(
+  channelId,
+  beforeTs,
+  currentUserId
+) {
+  const url =
+    new URL(
+      "https://slack.com/api/conversations.history"
+    );
+
+  url.searchParams.set(
+    "channel",
+    channelId
+  );
+
+  url.searchParams.set(
+    "latest",
+    beforeTs
+  );
+
+  url.searchParams.set(
+    "inclusive",
+    "false"
+  );
+
+  url.searchParams.set(
+    "limit",
+    "12"
+  );
+
+  const response =
+    await fetch(
+      url.toString(),
+      {
+        headers: {
+          Authorization:
+            `Bearer ${process.env.SLACK_BOT_TOKEN}`,
+        },
+      }
+    );
+
+  const data =
+    await response.json();
+
+  if (!data.ok) {
+    console.error(
+      "conversations.history error:",
+      data
+    );
+
+    return [];
+  }
+
+  return (
+    data.messages ?? []
+  )
+    .filter(
+      (message) => {
+        if (!message.text) {
+          return false;
+        }
+
+        if (message.bot_id) {
+          return true;
+        }
+
+        return (
+          message.user ===
+          currentUserId
+        );
+      }
+    )
+    .reverse()
+    .map(
+      (message) => ({
+        role:
+          message.bot_id
+            ? "ALL Manager AI"
+            : "ユーザー",
+
+        text:
+          message.text.trim(),
+      })
+    );
+}
+
+function historyToText(
+  history
+) {
+  if (!history.length) {
+    return "（履歴なし）";
+  }
+
+  return history
+    .map(
+      (message) =>
+        `[${message.role}] ${message.text}`
+    )
+    .join("\n");
+}
+
+// ========================================
+// OpenAI
 // ========================================
 
 function getOpenAIOutputText(
   data
 ) {
-  return (data.output ?? [])
+  return (
+    data.output ?? []
+  )
     .filter(
       (item) =>
-        item.type === "message"
+        item.type ===
+        "message"
     )
     .flatMap(
       (item) =>
@@ -193,17 +284,19 @@ function getOpenAIOutputText(
     .trim();
 }
 
-// ========================================
-// 自然文解析
-// ========================================
-
 async function analyzeSlackMessage(
   userText,
   channelName,
-  fixedArea
+  fixedArea,
+  history
 ) {
   const today =
     getTodayJST();
+
+  const recentHistory =
+    historyToText(
+      history
+    );
 
   const response =
     await fetch(
@@ -228,54 +321,76 @@ async function analyzeSlackMessage(
           instructions: `
 あなたは「ALL Manager AI」です。
 
-現在の日付は日本時間で
+Slackの同じチャンネルで続いている会話として理解してください。
+
+現在の日付:
 ${today}
-です。
 
-現在のSlackチャンネルは
+現在のチャンネル:
 #${channelName}
-です。
 
-固定Areaは
+固定Area:
 ${fixedArea || "なし"}
-です。
 
-ユーザーの自然文を次の4種類に分類してください。
+直近の会話履歴:
+${recentHistory}
+
+重要:
+・今回のメッセージだけを単独で解釈せず、必要なら直近の履歴を使う
+・新しいタスクを勝手に作らない
+・曖昧なら clarification にする
+
+intent は次の5種類です。
 
 --------------------------------
 task_create
 --------------------------------
 
-新しいタスクを登録する内容。
-
-例:
-「A社へ連絡する」
-「9/12以降にA社へ連絡。期限9/15、15分、P1」
+新しいタスクを登録する。
 
 --------------------------------
 task_complete
 --------------------------------
 
-既存タスクを完了したという内容。
+既存タスクを完了する。
 
 例:
 「A社へ連絡、完了」
-「A社への連絡終わった」
-「資料作成できた」
-「○○をDoneにして」
+「資料作成終わった」
 
-この場合、
 task_nameには
-ALL TASKSから探すための
-タスク名だけを入れてください。
+検索するタスク名を入れる。
+
+selection_indexは0。
+
+--------------------------------
+task_complete_selection
+--------------------------------
+
+直前にALL Manager AIが
+複数候補を番号付きで提示しており、
+今回のメッセージが
+その候補を選んでいる場合。
 
 例:
 
-入力:
-「A社へ連絡、完了」
+「1番」
+「一番上」
+「2つ目」
+「期限9/15のやつ」
+「P1のやつ」
 
-task_name:
-「A社へ連絡」
+会話履歴から該当候補を判断し、
+selection_index に候補番号を入れる。
+
+番号は1から始まる。
+
+task_nameには、
+直前に完了しようとしていた
+元のタスク名を入れる。
+
+どれか特定できなければ
+clarification。
 
 --------------------------------
 conversation
@@ -283,29 +398,19 @@ conversation
 
 質問、相談、雑談、確認など。
 
-例:
-「今日何したらいい？」
-「ありがとう」
-「これ動いてる？」
+過去の話の続きなら、
+履歴を踏まえてreplyを返す。
 
 --------------------------------
 clarification
 --------------------------------
 
-何を完了したのか、
-何を登録したいのかが
-判断できない場合。
-
-勝手に推測しないでください。
+何を意味しているか
+安全に特定できない場合。
 
 --------------------------------
 Area
 --------------------------------
-
-固定Areaがある場合は
-必ず固定Areaを使用してください。
-
-候補:
 
 本業
 副業
@@ -313,8 +418,14 @@ Training
 Study
 Life
 
-#90-inboxだけは
-内容から判断してください。
+固定Areaがある場合は
+必ず固定Area。
+
+#90-inboxの場合だけ
+内容から判断する。
+
+分からなければ
+clarification。
 
 --------------------------------
 Project
@@ -322,27 +433,24 @@ Project
 
 分かる場合だけ設定。
 
-このALL Manager AIや
-Slack管理システムの開発なら
+ALL Manager AIや
+Slack管理システムの開発は
 
 副業管理ツール
 
-としてください。
+とする。
 
 不明なら空文字。
 
 --------------------------------
-Status
+新規タスク
 --------------------------------
 
-新規タスクは基本Ready。
+Status:
+基本Ready。
+今日やるならToday。
 
-今日やることが明確ならToday。
-
---------------------------------
-Priority
---------------------------------
-
+Priority:
 P1 = 最優先
 P2 = 高め
 P3 = 通常
@@ -350,28 +458,15 @@ P4 = 低め
 
 指定なしならP3。
 
---------------------------------
-Start
---------------------------------
+Start:
+YYYY-MM-DD。
+指定なしなら${today}。
 
-開始日をYYYY-MM-DD。
-
-指定なしなら
-${today}
-
---------------------------------
-Due
---------------------------------
-
+Due:
 期限がある場合だけ
 YYYY-MM-DD。
 
-なければ空文字。
-
---------------------------------
-Estimate
---------------------------------
-
+Estimate:
 15
 30
 45
@@ -379,56 +474,74 @@ Estimate
 90
 120
 
-から選択。
-
-指定なしなら現実的に推定。
+指定なしなら推定。
 不明なら30。
 
---------------------------------
-reply
---------------------------------
-
-conversation または
-clarification の返答。
-
-task_create / task_completeなら
-空文字で構いません。
+reply:
+conversation / clarification
+のときの短い返答。
 `,
 
-          input: userText,
+          input:
+            userText,
 
-          max_output_tokens: 400,
+          max_output_tokens:
+            450,
 
           text: {
             format: {
-              type: "json_schema",
+              type:
+                "json_schema",
 
               name:
                 "all_manager_intent",
 
-              strict: true,
+              strict:
+                true,
 
               schema: {
-                type: "object",
+                type:
+                  "object",
 
                 properties: {
                   intent: {
-                    type: "string",
+                    type:
+                      "string",
 
                     enum: [
                       "task_create",
                       "task_complete",
+                      "task_complete_selection",
                       "conversation",
                       "clarification",
                     ],
                   },
 
                   task_name: {
-                    type: "string",
+                    type:
+                      "string",
+                  },
+
+                  selection_index: {
+                    type:
+                      "integer",
+
+                    enum: [
+                      0,
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7,
+                      8,
+                    ],
                   },
 
                   area: {
-                    type: "string",
+                    type:
+                      "string",
 
                     enum: [
                       "",
@@ -441,11 +554,13 @@ task_create / task_completeなら
                   },
 
                   project: {
-                    type: "string",
+                    type:
+                      "string",
                   },
 
                   status: {
-                    type: "string",
+                    type:
+                      "string",
 
                     enum: [
                       "",
@@ -455,7 +570,8 @@ task_create / task_completeなら
                   },
 
                   priority: {
-                    type: "string",
+                    type:
+                      "string",
 
                     enum: [
                       "",
@@ -467,15 +583,18 @@ task_create / task_completeなら
                   },
 
                   start_date: {
-                    type: "string",
+                    type:
+                      "string",
                   },
 
                   due_date: {
-                    type: "string",
+                    type:
+                      "string",
                   },
 
                   estimate_minutes: {
-                    type: "integer",
+                    type:
+                      "integer",
 
                     enum: [
                       0,
@@ -489,13 +608,15 @@ task_create / task_completeなら
                   },
 
                   reply: {
-                    type: "string",
+                    type:
+                      "string",
                   },
                 },
 
                 required: [
                   "intent",
                   "task_name",
+                  "selection_index",
                   "area",
                   "project",
                   "status",
@@ -534,7 +655,9 @@ task_create / task_completeなら
     await response.json();
 
   const outputText =
-    getOpenAIOutputText(data);
+    getOpenAIOutputText(
+      data
+    );
 
   if (!outputText) {
     throw new Error(
@@ -554,7 +677,7 @@ task_create / task_completeなら
 async function getAllTasksData() {
   let cursor = null;
 
-  let allItems = [];
+  let items = [];
 
   let list = null;
 
@@ -563,7 +686,8 @@ async function getAllTasksData() {
       list_id:
         ALL_TASKS_LIST_ID,
 
-      limit: 100,
+      limit:
+        100,
 
       include_list:
         list === null,
@@ -609,12 +733,16 @@ async function getAllTasksData() {
       );
     }
 
-    if (!list && data.list) {
-      list = data.list;
+    if (
+      !list &&
+      data.list
+    ) {
+      list =
+        data.list;
     }
 
-    allItems =
-      allItems.concat(
+    items =
+      items.concat(
         data.items ?? []
       );
 
@@ -631,13 +759,12 @@ async function getAllTasksData() {
         ?.schema ??
       [],
 
-    items:
-      allItems,
+    items,
   };
 }
 
 // ========================================
-// 列検索
+// 列ヘルパー
 // ========================================
 
 function findColumnByKey(
@@ -674,7 +801,8 @@ function getChoiceLabels(
   column
 ) {
   return (
-    column?.options
+    column
+      ?.options
       ?.choices ??
     []
   ).map(
@@ -720,7 +848,7 @@ function findSelectOption(
   column,
   label
 ) {
-  const choice =
+  return (
     column
       ?.options
       ?.choices
@@ -729,19 +857,14 @@ function findSelectOption(
           String(
             item.label ?? ""
           ).toLowerCase() ===
-          String(label)
-            .toLowerCase()
-      );
-
-  return (
-    choice?.value ??
+          String(
+            label
+          ).toLowerCase()
+      )
+      ?.value ??
     null
   );
 }
-
-// ========================================
-// Rich Text
-// ========================================
 
 function makeRichTextField(
   columnId,
@@ -777,21 +900,28 @@ function makeRichTextField(
   };
 }
 
-// ========================================
-// タスク名取得
-// ========================================
+function getItemField(
+  item,
+  columnId
+) {
+  return (
+    item.fields ?? []
+  ).find(
+    (field) =>
+      field.column_id ===
+      columnId
+  );
+}
 
 function getItemTaskName(
   item,
   nameColumnId
 ) {
   const field =
-    (item.fields ?? [])
-      .find(
-        (field) =>
-          field.column_id ===
-          nameColumnId
-      );
+    getItemField(
+      item,
+      nameColumnId
+    );
 
   if (!field) {
     return "";
@@ -811,14 +941,71 @@ function getItemTaskName(
   return "";
 }
 
+function getItemDate(
+  item,
+  column
+) {
+  if (!column) {
+    return "";
+  }
+
+  const field =
+    getItemField(
+      item,
+      column.id
+    );
+
+  return (
+    field?.date?.[0] ??
+    ""
+  );
+}
+
+function getItemSelectLabel(
+  item,
+  column
+) {
+  if (!column) {
+    return "";
+  }
+
+  const field =
+    getItemField(
+      item,
+      column.id
+    );
+
+  const optionId =
+    field?.select?.[0];
+
+  if (!optionId) {
+    return "";
+  }
+
+  return (
+    column
+      .options
+      ?.choices
+      ?.find(
+        (choice) =>
+          choice.value ===
+          optionId
+      )
+      ?.label ??
+    ""
+  );
+}
+
 // ========================================
-// タスク名比較用
+// タスク検索
 // ========================================
 
 function normalizeTaskName(
   text
 ) {
-  return String(text ?? "")
+  return String(
+    text ?? ""
+  )
     .normalize("NFKC")
     .toLowerCase()
     .replace(
@@ -831,11 +1018,43 @@ function normalizeTaskName(
     );
 }
 
-// ========================================
-// 対象タスク検索
-// ========================================
+function sortTaskRows(
+  rows
+) {
+  return [
+    ...rows,
+  ].sort(
+    (a, b) => {
+      const dateDiff =
+        Number(
+          b.item
+            .date_created ??
+            0
+        ) -
+        Number(
+          a.item
+            .date_created ??
+            0
+        );
 
-function findMatchingTask(
+      if (
+        dateDiff !== 0
+      ) {
+        return dateDiff;
+      }
+
+      return String(
+        a.item.id
+      ).localeCompare(
+        String(
+          b.item.id
+        )
+      );
+    }
+  );
+}
+
+function findMatchingTaskRows(
   items,
   nameColumnId,
   requestedName
@@ -845,11 +1064,12 @@ function findMatchingTask(
       requestedName
     );
 
-  const taskRows =
+  const rows =
     items
       .map(
         (item) => ({
           item,
+
           name:
             getItemTaskName(
               item,
@@ -862,9 +1082,8 @@ function findMatchingTask(
           row.name
       );
 
-  // 完全一致
   const exact =
-    taskRows.filter(
+    rows.filter(
       (row) =>
         normalizeTaskName(
           row.name
@@ -872,26 +1091,15 @@ function findMatchingTask(
     );
 
   if (
-    exact.length === 1
+    exact.length
   ) {
-    return {
-      type: "found",
-      row: exact[0],
-    };
+    return sortTaskRows(
+      exact
+    );
   }
 
-  if (
-    exact.length > 1
-  ) {
-    return {
-      type: "multiple",
-      rows: exact,
-    };
-  }
-
-  // 部分一致
   const partial =
-    taskRows.filter(
+    rows.filter(
       (row) => {
         const normalized =
           normalizeTaskName(
@@ -909,27 +1117,176 @@ function findMatchingTask(
       }
     );
 
-  if (
-    partial.length === 1
-  ) {
-    return {
-      type: "found",
-      row: partial[0],
-    };
+  return sortTaskRows(
+    partial
+  );
+}
+
+// ========================================
+// 候補表示
+// ========================================
+
+function formatCreatedAtJST(
+  unixSeconds
+) {
+  if (!unixSeconds) {
+    return "";
   }
 
-  if (
-    partial.length > 1
-  ) {
-    return {
-      type: "multiple",
-      rows: partial,
-    };
+  return new Intl.DateTimeFormat(
+    "ja-JP",
+    {
+      timeZone:
+        "Asia/Tokyo",
+
+      month:
+        "numeric",
+
+      day:
+        "numeric",
+
+      hour:
+        "2-digit",
+
+      minute:
+        "2-digit",
+    }
+  ).format(
+    new Date(
+      Number(
+        unixSeconds
+      ) * 1000
+    )
+  );
+}
+
+function buildCandidateLine(
+  row,
+  schema,
+  index
+) {
+  const statusColumn =
+    findSelectColumn(
+      schema,
+      [
+        "Ready",
+        "Today",
+        "Doing",
+        "Done",
+      ]
+    );
+
+  const priorityColumn =
+    findSelectColumn(
+      schema,
+      [
+        "P1",
+        "P2",
+        "P3",
+        "P4",
+      ]
+    );
+
+  const startColumn =
+    findColumnByNames(
+      schema,
+      ["Start"]
+    );
+
+  const dueColumn =
+    findColumnByKey(
+      schema,
+      "todo_due_date"
+    );
+
+  const estimateColumn =
+    findColumnByNames(
+      schema,
+      ["Estimate"]
+    );
+
+  const status =
+    getItemSelectLabel(
+      row.item,
+      statusColumn
+    );
+
+  const priority =
+    getItemSelectLabel(
+      row.item,
+      priorityColumn
+    );
+
+  const start =
+    getItemDate(
+      row.item,
+      startColumn
+    );
+
+  const due =
+    getItemDate(
+      row.item,
+      dueColumn
+    );
+
+  const estimate =
+    getItemSelectLabel(
+      row.item,
+      estimateColumn
+    );
+
+  const created =
+    formatCreatedAtJST(
+      row.item
+        .date_created
+    );
+
+  const details = [];
+
+  if (status) {
+    details.push(
+      status
+    );
   }
 
-  return {
-    type: "not_found",
-  };
+  if (priority) {
+    details.push(
+      priority
+    );
+  }
+
+  if (start) {
+    details.push(
+      `Start ${start}`
+    );
+  }
+
+  if (due) {
+    details.push(
+      `期限 ${due}`
+    );
+  }
+
+  if (estimate) {
+    details.push(
+      estimate
+    );
+  }
+
+  if (created) {
+    details.push(
+      `登録 ${created}`
+    );
+  }
+
+  return (
+    `${index}. ${row.name}` +
+    (
+      details.length
+        ? ` ｜ ${details.join(" ｜ ")}`
+        : ""
+    )
+  );
 }
 
 // ========================================
@@ -953,7 +1310,10 @@ async function createTaskInSlackList(
     ) ||
     findColumnByNames(
       schema,
-      ["名前", "Name"]
+      [
+        "名前",
+        "Name",
+      ]
     );
 
   const assigneeColumn =
@@ -1038,14 +1398,12 @@ async function createTaskInSlackList(
     );
   }
 
-  const fields = [];
-
-  fields.push(
+  const fields = [
     makeRichTextField(
       nameColumn.id,
       task.task_name
-    )
-  );
+    ),
+  ];
 
   if (
     assigneeColumn &&
@@ -1179,7 +1537,9 @@ async function createTaskInSlackList(
     }
   }
 
-  if (lastUpdateColumn) {
+  if (
+    lastUpdateColumn
+  ) {
     fields.push({
       column_id:
         lastUpdateColumn.id,
@@ -1249,7 +1609,8 @@ async function createTaskInSlackList(
 // ========================================
 
 async function completeTask(
-  requestedTaskName
+  requestedTaskName,
+  selectionIndex = 0
 ) {
   const {
     schema,
@@ -1264,7 +1625,10 @@ async function completeTask(
     ) ||
     findColumnByNames(
       schema,
-      ["名前", "Name"]
+      [
+        "名前",
+        "Name",
+      ]
     );
 
   const completedColumn =
@@ -1299,17 +1663,14 @@ async function completeTask(
     );
   }
 
-  const match =
-    findMatchingTask(
+  const matches =
+    findMatchingTaskRows(
       items,
       nameColumn.id,
       requestedTaskName
     );
 
-  if (
-    match.type ===
-    "not_found"
-  ) {
+  if (!matches.length) {
     return {
       status:
         "not_found",
@@ -1317,30 +1678,62 @@ async function completeTask(
   }
 
   if (
-    match.type ===
-    "multiple"
+    matches.length > 1 &&
+    selectionIndex === 0
   ) {
     return {
       status:
         "multiple",
 
-      names:
-        match.rows
-          .slice(0, 5)
+      candidates:
+        matches
+          .slice(0, 8)
           .map(
-            (row) =>
-              row.name
+            (row, index) =>
+              buildCandidateLine(
+                row,
+                schema,
+                index + 1
+              )
           ),
     };
   }
 
+  let selectedRow;
+
+  if (
+    selectionIndex > 0
+  ) {
+    selectedRow =
+      matches[
+        selectionIndex - 1
+      ];
+
+    if (!selectedRow) {
+      return {
+        status:
+          "invalid_selection",
+
+        count:
+          Math.min(
+            matches.length,
+            8
+          ),
+      };
+    }
+  } else {
+    selectedRow =
+      matches[0];
+  }
+
   const rowId =
-    match.row.item.id;
+    selectedRow.item.id;
 
   const cells = [];
 
-  // Slack標準の完了チェック
-  if (completedColumn) {
+  if (
+    completedColumn
+  ) {
     cells.push({
       row_id:
         rowId,
@@ -1348,20 +1741,24 @@ async function completeTask(
       column_id:
         completedColumn.id,
 
-      checkbox:
+      checkbox: [
         true,
+      ],
     });
   }
 
-  // StatusをDoneに
-  if (statusColumn) {
+  if (
+    statusColumn
+  ) {
     const doneOption =
       findSelectOption(
         statusColumn,
         "Done"
       );
 
-    if (doneOption) {
+    if (
+      doneOption
+    ) {
       cells.push({
         row_id:
           rowId,
@@ -1376,8 +1773,9 @@ async function completeTask(
     }
   }
 
-  // 最終更新を今日に
-  if (lastUpdateColumn) {
+  if (
+    lastUpdateColumn
+  ) {
     cells.push({
       row_id:
         rowId,
@@ -1391,9 +1789,7 @@ async function completeTask(
     });
   }
 
-  if (
-    cells.length === 0
-  ) {
+  if (!cells.length) {
     throw new Error(
       "更新できる列が見つかりません"
     );
@@ -1442,7 +1838,7 @@ async function completeTask(
       "completed",
 
     taskName:
-      match.row.name,
+      selectedRow.name,
   };
 }
 
@@ -1488,6 +1884,58 @@ async function postSlackMessage(
 }
 
 // ========================================
+// 完了結果返信
+// ========================================
+
+async function handleCompletionResult(
+  channel,
+  result
+) {
+  if (
+    result.status ===
+    "not_found"
+  ) {
+    await postSlackMessage(
+      channel,
+      "⚠️ 一致するタスクが見つかりませんでした。"
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "invalid_selection"
+  ) {
+    await postSlackMessage(
+      channel,
+      `その番号はありません。1〜${result.count}番から選んでください。`
+    );
+
+    return;
+  }
+
+  if (
+    result.status ===
+    "multiple"
+  ) {
+    await postSlackMessage(
+      channel,
+      `候補が複数あります。どれを完了しますか？\n${result.candidates.join(
+        "\n"
+      )}\n\n「1番」「期限9/15のやつ」のように返してください。`
+    );
+
+    return;
+  }
+
+  await postSlackMessage(
+    channel,
+    `✅ 完了にしました\n・${result.taskName}`
+  );
+}
+
+// ========================================
 // Slackメッセージ処理
 // ========================================
 
@@ -1521,11 +1969,8 @@ async function processSlackEvent(
       event.channel
     );
 
-  if (!channelName) {
-    return;
-  }
-
   if (
+    !channelName ||
     !INPUT_CHANNELS.has(
       channelName
     )
@@ -1539,16 +1984,20 @@ async function processSlackEvent(
     ] ?? null;
 
   try {
+    const history =
+      await getRecentConversationHistory(
+        event.channel,
+        event.ts,
+        event.user
+      );
+
     const result =
       await analyzeSlackMessage(
         userText,
         channelName,
-        fixedArea
+        fixedArea,
+        history
       );
-
-    // ====================================
-    // 普通の会話
-    // ====================================
 
     if (
       result.intent ===
@@ -1563,10 +2012,6 @@ async function processSlackEvent(
       return;
     }
 
-    // ====================================
-    // 確認が必要
-    // ====================================
-
     if (
       result.intent ===
       "clarification"
@@ -1580,62 +2025,41 @@ async function processSlackEvent(
       return;
     }
 
-    // ====================================
-    // 完了処理
-    // ====================================
-
     if (
       result.intent ===
       "task_complete"
     ) {
       const completeResult =
         await completeTask(
-          result.task_name
+          result.task_name,
+          0
         );
 
-      if (
-        completeResult.status ===
-        "not_found"
-      ) {
-        await postSlackMessage(
-          event.channel,
-          `⚠️「${result.task_name}」に一致するタスクが見つかりませんでした。`
-        );
-
-        return;
-      }
-
-      if (
-        completeResult.status ===
-        "multiple"
-      ) {
-        const names =
-          completeResult.names
-            .map(
-              (name) =>
-                `・${name}`
-            )
-            .join("\n");
-
-        await postSlackMessage(
-          event.channel,
-          `候補が複数あります。どれを完了しますか？\n${names}`
-        );
-
-        return;
-      }
-
-      await postSlackMessage(
+      await handleCompletionResult(
         event.channel,
-        `✅ 完了にしました\n・${completeResult.taskName}`
+        completeResult
       );
 
       return;
     }
 
-    // ====================================
-    // 新規タスク
-    // ====================================
+    if (
+      result.intent ===
+      "task_complete_selection"
+    ) {
+      const completeResult =
+        await completeTask(
+          result.task_name,
+          result.selection_index
+        );
+
+      await handleCompletionResult(
+        event.channel,
+        completeResult
+      );
+
+      return;
+    }
 
     const finalArea =
       fixedArea ||
@@ -1692,20 +2116,22 @@ async function processSlackEvent(
       `・${task.task_name}\n` +
       `・${task.area}`;
 
-    if (task.project) {
+    if (
+      task.project
+    ) {
       confirmation +=
         ` / ${task.project}`;
     }
 
     confirmation +=
-      `\n・${task.status}` +
-      ` / ${task.priority}` +
-      ` / ${task.estimate_minutes}分`;
+      `\n・${task.status} / ${task.priority} / ${task.estimate_minutes}分`;
 
     confirmation +=
       `\n・Start: ${task.start_date}`;
 
-    if (task.due_date) {
+    if (
+      task.due_date
+    ) {
       confirmation +=
         ` / 期限: ${task.due_date}`;
     }
@@ -1764,7 +2190,9 @@ export async function POST(
     }
 
     const body =
-      JSON.parse(rawBody);
+      JSON.parse(
+        rawBody
+      );
 
     if (
       body.type ===
@@ -1787,18 +2215,20 @@ export async function POST(
       body.type ===
       "event_callback"
     ) {
-      after(async () => {
-        try {
-          await processSlackEvent(
-            body.event
-          );
-        } catch (error) {
-          console.error(
-            "Background processing error:",
-            error
-          );
+      after(
+        async () => {
+          try {
+            await processSlackEvent(
+              body.event
+            );
+          } catch (error) {
+            console.error(
+              "Background processing error:",
+              error
+            );
+          }
         }
-      });
+      );
     }
 
     return new Response(
@@ -1829,10 +2259,13 @@ export async function POST(
 export async function GET() {
   return Response.json({
     ok: true,
+
     status:
       "ALL Manager AI is running",
+
     mode:
-      "task-create-and-complete",
+      "conversation-memory-and-task-selection",
+
     date:
       getTodayJST(),
   });
